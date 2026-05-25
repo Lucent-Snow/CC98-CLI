@@ -1,0 +1,39 @@
+{
+  "name": "cc98-cli",
+  "version": "0.1.0",
+  "description": "A native TypeScript CLI and TUI client for CC98.",
+  "type": "module",
+  "bin": {
+    "cc98": "dist/main.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "dev": "node --enable-source-maps dist/main.js",
+    "check": "tsc --noEmit",
+    "prepublishOnly": "npm run check && npm run build"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Lucent-Snow/CC98-CLI.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Lucent-Snow/CC98-CLI/issues"
+  },
+  "homepage": "https://github.com/Lucent-Snow/CC98-CLI#readme",
+  "engines": {
+    "node": ">=20"
+  },
+  "keywords": [
+    "cc98",
+    "cli",
+    "tui"
+  ],
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "typescript": "^5.8.0"
+  }
+}
