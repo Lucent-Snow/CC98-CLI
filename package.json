@@ -7,7 +7,9 @@
     "cc98": "dist/main.js"
   },
   "files": [
-    "dist"
+    "dist",
+    "docs/images/tui.jpg",
+    "CHANGELOG.md"
   ],
   "scripts": {
     "build": "tsc",
