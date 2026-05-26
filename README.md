@@ -1,10 +1,22 @@
-# CC98 CLI
+# CC98-CLI
 
-CC98 的命令行客户端，包含 CLI 和 TUI。
+CC98 的命令行客户端，包含面向脚本使用的 CLI 和适合日常浏览的 TUI。
 
 - 直接运行 `cc98`：进入终端界面。
 - 带参数运行 `cc98 <command>`：执行 CLI，默认输出 JSON。
 - 当前主要面向读取场景，TUI 会尽量按需加载和缓存，减少请求。
+
+## 概要
+
+vibe coding 累了的话，不妨在终端里水水 98。
+
+这是一个个人兴趣项目，基于 CC98 的公开接口实现，与 CC98 官方无关。请合理使用本工具，避免违反 CC98 的用户协议。
+
+## 预览
+
+<p align="center">
+  <img src="docs/images/tui.jpg" alt="CC98-CLI TUI 截图" width="900">
+</p>
 
 ## 安装
 
@@ -37,14 +49,18 @@ cc98
 常用按键：
 
 ```text
-j/k 或 ↑/↓        移动
-h/l 或 ←/→        左右切换
-Enter             打开选中项
-Esc/Backspace     返回上一级
-n 或 Space        加载下一页
+j/k 或 ↑/↓        上下移动
+l 或 →            进入下一层
+h 或 ←            返回上一层
+Enter             确认执行
 r                 刷新
+o                 打开操作菜单
+?                 显示帮助
+n 或 Space        加载更多
 q                 退出
 ```
+
+左栏导航包含：十大、收藏、最新、版面、关注、消息、我的、设置。
 
 ## CLI
 
@@ -82,6 +98,11 @@ npm run check
 npm run build
 node dist/main.js
 ```
+
+## 致谢
+
+- [Ansherly](https://github.com/Ansherly)：感谢 CC98 客户端相关实现带来的参考。
+- [CC98-Desktop](https://github.com/Ansherly/CC98-Desktop)：部分 TUI 信息架构参考了该桌面客户端的交互设计。
 
 ## License
 
