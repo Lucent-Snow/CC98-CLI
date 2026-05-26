@@ -45,7 +45,7 @@ export class TokenStore {
   }
 
   async save(tokens: { accessToken: string; refreshToken?: string }): Promise<void> {
-    const account = this.account ?? "default";
+    const account = await this.getCurrentAccountName() ?? "default";
     await this.saveAccount(account, tokens);
   }
 

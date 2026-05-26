@@ -72,6 +72,7 @@ cc98 topic <topic-id>
 cc98 board <board-id>
 cc98 search <keyword>
 cc98 message recent
+cc98 update
 ```
 
 查看完整命令：
@@ -80,6 +81,7 @@ cc98 message recent
 cc98 --help
 cc98 topic --help
 cc98 user --help
+cc98 update --help
 ```
 
 ## 本地数据
@@ -101,7 +103,7 @@ node dist/main.js
 
 ## 致谢
 
-- [Ansherly](https://github.com/Ansherly)：感谢 CC98 客户端相关实现带来的参考。
+- [Ansherly](https://github.com/Ansherly)：感谢前辈的积极鼓励！
 - [CC98-Desktop](https://github.com/Ansherly/CC98-Desktop)：部分 TUI 信息架构参考了该桌面客户端的交互设计。
 
 ## License

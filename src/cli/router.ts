@@ -1,5 +1,6 @@
 import { accountCommand } from "./commands/account.js";
 import { boardCommand } from "./commands/board.js";
+import { cacheCommand } from "./commands/cache.js";
 import { forumCommand } from "./commands/forum.js";
 import { loginCommand } from "./commands/login.js";
 import { logoutCommand } from "./commands/logout.js";
@@ -10,14 +11,17 @@ import { postCommand } from "./commands/post.js";
 import { extractAccountOption } from "./options.js";
 import { searchCommand } from "./commands/search.js";
 import { topicCommand } from "./commands/topic.js";
+import { updateCommand } from "./commands/update.js";
 import { userCommand } from "./commands/user.js";
 import { runTui } from "../tui/app.js";
+import { appName, appVersion } from "../version.js";
 
 type CommandHandler = (args: string[]) => Promise<void> | void;
 
 const commands: Record<string, CommandHandler> = {
   account: accountCommand,
   board: boardCommand,
+  cache: cacheCommand,
   forum: forumCommand,
   login: loginCommand,
   logout: logoutCommand,
@@ -28,6 +32,7 @@ const commands: Record<string, CommandHandler> = {
   search: searchCommand,
   topic: topicCommand,
   tui: runTui,
+  update: updateCommand,
   user: userCommand
 };
 
@@ -41,7 +46,7 @@ export async function runCli(args: string[]): Promise<void> {
   }
 
   if (command === "--version" || command === "-v") {
-    console.log("cc98-cli 0.1.0");
+    console.log(`${appName} ${appVersion}`);
     return;
   }
 
@@ -77,6 +82,10 @@ Usage:
   cc98 notice system        Read system notices
   cc98 post rate-reasons 0  Read post rating reasons
   cc98 search <keyword>     Search topics
+  cc98 cache stats          Show cache statistics
+  cc98 cache cleanup        Remove expired cache entries
+  cc98 cache clear          Clear all cache
+  cc98 update               Check the latest GitHub Release
 
 Options:
   -a, --account <name>      Use this account for supported commands

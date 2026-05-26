@@ -6,10 +6,14 @@ const minute = 60 * second;
 const hour = 60 * minute;
 
 export class CachedCc98Client {
+  readonly cache: CacheStore;
+
   constructor(
     private readonly client: Cc98Client,
-    private readonly cache = new CacheStore()
-  ) {}
+    cache?: CacheStore
+  ) {
+    this.cache = cache ?? new CacheStore();
+  }
 
   getForumIndex(force = false, signal?: AbortSignal): Promise<unknown> {
     return this.cache.getOrSet("forum:index", 30 * second, () => this.client.getForumIndex({ signal }), { force });
@@ -85,5 +89,30 @@ export class CachedCc98Client {
       () => this.client.getTopicPosts(topicId, from, size, { signal }),
       { force }
     );
+  }
+
+  /**
+   * Clear all caches (memory + file)
+   */
+  async clearCache(): Promise<void> {
+    await this.cache.clearAll();
+  }
+
+  /**
+   * Run cache cleanup and return statistics
+   */
+  async cleanupCache(): Promise<{ removed: number; kept: number }> {
+    return this.cache.cleanupFileCache();
+  }
+
+  /**
+   * Get cache statistics
+   */
+  async getCacheStats(): Promise<{
+    memoryEntries: number;
+    inflightRequests: number;
+    fileCacheEntries: number;
+  }> {
+    return this.cache.getStats();
   }
 }

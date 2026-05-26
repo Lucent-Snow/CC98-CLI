@@ -8,8 +8,14 @@ interface RequestOptions {
   signal?: AbortSignal;
 }
 
+interface TokenRefreshResult {
+  accessToken: string;
+  refreshToken?: string;
+}
+
 export class Cc98Client {
   private readonly tokenStore: ClientOptions["tokenStore"];
+  private refreshPromise: Promise<TokenRefreshResult | null> | null = null;
 
   constructor(options: ClientOptions) {
     this.tokenStore = options.tokenStore;
@@ -190,10 +196,22 @@ export class Cc98Client {
       headers.set("authorization", `Bearer ${token}`);
     }
 
-    const response = await fetch(url, {
+    let response = await fetch(url, {
       ...init,
       headers
     });
+
+    // Try to refresh token on 401
+    if (response.status === 401 && authorize) {
+      const refreshed = await this.tryRefreshToken();
+      if (refreshed) {
+        headers.set("authorization", `Bearer ${refreshed.accessToken}`);
+        response = await fetch(url, {
+          ...init,
+          headers
+        });
+      }
+    }
 
     const text = await response.text();
     const data = parseJson(text);
@@ -207,6 +225,66 @@ export class Cc98Client {
     }
 
     return data as T;
+  }
+
+  private async tryRefreshToken(): Promise<TokenRefreshResult | null> {
+    // Deduplicate concurrent refresh attempts
+    if (this.refreshPromise) {
+      return this.refreshPromise;
+    }
+
+    this.refreshPromise = this.doRefreshToken();
+
+    try {
+      const result = await this.refreshPromise;
+      return result;
+    } finally {
+      this.refreshPromise = null;
+    }
+  }
+
+  private async doRefreshToken(): Promise<TokenRefreshResult | null> {
+    const account = await this.tokenStore.getCurrentAccount?.();
+    const refreshToken = account ? account.refreshToken : await this.tokenStore.getRefreshToken();
+    if (!refreshToken) {
+      return null;
+    }
+
+    try {
+      const body = new URLSearchParams({
+        refresh_token: refreshToken,
+        client_id: passwordClientId,
+        client_secret: passwordClientSecret,
+        grant_type: "refresh_token",
+        scope: "cc98-api openid offline_access"
+      });
+
+      const token = await this.request<AuthToken>(endpoints.auth.token, {
+        method: "POST",
+        headers: {
+          "content-type": "application/x-www-form-urlencoded"
+        },
+        body
+      }, false);
+
+      if (!token.access_token) {
+        return null;
+      }
+
+      const result: TokenRefreshResult = {
+        accessToken: token.access_token,
+        refreshToken: token.refresh_token
+      };
+
+      if (account && this.tokenStore.saveAccount) {
+        await this.tokenStore.saveAccount(account.account, result);
+      } else {
+        await this.tokenStore.save(result);
+      }
+      return result;
+    } catch {
+      return null;
+    }
   }
 }
 
