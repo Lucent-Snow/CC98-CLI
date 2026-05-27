@@ -3,6 +3,7 @@ import { Header, Overview, Sidebar, Content, StatusBar, fit, blank } from "./com
 import { navItems } from "./navigation.js";
 import type { TopicReaderState, TuiState } from "./state/types.js";
 import { currentTopicLine, currentTopicPost, lineKindLabel } from "./topic-reader.js";
+import { BOX_ROUNDED } from "./borders.js";
 
 const cc98Blue = fg(0, 130, 202);
 const cc98BlueSoft = fg(94, 180, 232);
@@ -11,6 +12,7 @@ const muted = fg(139, 152, 166);
 const line = fg(52, 84, 112);
 const danger = fg(245, 101, 101);
 const ok = fg(91, 207, 140);
+const box = BOX_ROUNDED;
 
 const header = new Header();
 const overview = new Overview();
@@ -25,12 +27,63 @@ export function draw(state: TuiState, size: { columns: number; rows: number }): 
   const rightWidth = width < 78 ? 0 : Math.min(42, Math.max(34, Math.floor(width * 0.30)));
   const mainWidth = width - sidebarWidth - rightWidth - (rightWidth > 0 ? 2 : 1);
   const overviewHeight = height < 24 ? 1 : 2;
-  const bodyHeight = height - 4 - overviewHeight;
+  // 计算主体区域高度：总高度 - header - top border - overview - separator - bottom border - status bar
+  const bodyHeight = height - 5 - overviewHeight;
   const lines: string[] = [];
 
   lines.push(header.render(state, width));
-  lines.push(`${line}${"─".repeat(width)}${ansi.reset}`);
+
+  // 顶部连接线
+  if (rightWidth > 0) {
+    lines.push(
+      line +
+      box.topLeft +
+      box.horizontal.repeat(sidebarWidth - 2) +
+      box.teeDown +
+      box.horizontal.repeat(mainWidth - 2) +
+      box.teeDown +
+      box.horizontal.repeat(rightWidth - 2) +
+      box.topRight +
+      ansi.reset
+    );
+  } else {
+    lines.push(
+      line +
+      box.topLeft +
+      box.horizontal.repeat(sidebarWidth - 2) +
+      box.teeDown +
+      box.horizontal.repeat(mainWidth - 2) +
+      box.topRight +
+      ansi.reset
+    );
+  }
+
   lines.push(...overview.render(state, width, overviewHeight));
+
+  // 分隔线
+  if (rightWidth > 0) {
+    lines.push(
+      line +
+      box.teeRight +
+      box.horizontal.repeat(sidebarWidth - 2) +
+      box.cross +
+      box.horizontal.repeat(mainWidth - 2) +
+      box.cross +
+      box.horizontal.repeat(rightWidth - 2) +
+      box.teeLeft +
+      ansi.reset
+    );
+  } else {
+    lines.push(
+      line +
+      box.teeRight +
+      box.horizontal.repeat(sidebarWidth - 2) +
+      box.cross +
+      box.horizontal.repeat(mainWidth - 2) +
+      box.teeLeft +
+      ansi.reset
+    );
+  }
 
   const sidebarLines = sidebar.render(state, sidebarWidth, bodyHeight);
   const mainLines = content.render(state, mainWidth, bodyHeight);
@@ -38,17 +91,48 @@ export function draw(state: TuiState, size: { columns: number; rows: number }): 
 
   for (let row = 0; row < bodyHeight; row += 1) {
     const parts = [
-      fit(sidebarLines[row] ?? "", sidebarWidth),
-      `${line}│${ansi.reset}`,
-      fit(mainLines[row] ?? "", mainWidth)
+      line + box.vertical + ansi.reset,
+      fit(sidebarLines[row] ?? "", sidebarWidth - 2),
+      line + box.vertical + ansi.reset,
+      fit(mainLines[row] ?? "", mainWidth - 2)
     ];
     if (rightWidth > 0) {
-      parts.push(`${line}│${ansi.reset}`, fit(rightLines[row] ?? "", rightWidth));
+      parts.push(
+        line + box.vertical + ansi.reset,
+        fit(rightLines[row] ?? "", rightWidth - 2),
+        line + box.vertical + ansi.reset
+      );
+    } else {
+      parts.push(line + box.vertical + ansi.reset);
     }
     lines.push(parts.join(""));
   }
 
-  lines.push(`${line}${"─".repeat(width)}${ansi.reset}`);
+  // 底部连接线
+  if (rightWidth > 0) {
+    lines.push(
+      line +
+      box.bottomLeft +
+      box.horizontal.repeat(sidebarWidth - 2) +
+      box.teeUp +
+      box.horizontal.repeat(mainWidth - 2) +
+      box.teeUp +
+      box.horizontal.repeat(rightWidth - 2) +
+      box.bottomRight +
+      ansi.reset
+    );
+  } else {
+    lines.push(
+      line +
+      box.bottomLeft +
+      box.horizontal.repeat(sidebarWidth - 2) +
+      box.teeUp +
+      box.horizontal.repeat(mainWidth - 2) +
+      box.bottomRight +
+      ansi.reset
+    );
+  }
+
   lines.push(statusBar.render(state, width));
 
   let output = lines.slice(0, height).join("\n");

@@ -5,8 +5,10 @@ import { stripAnsi } from "../ansi.js";
 // 截断字符串到指定宽度
 export function fit(value: string, width: number): string {
   const stripped = stripAnsi(value);
-  if (stripped.length <= width) {
-    return value + " ".repeat(Math.max(0, width - stripped.length));
+  const strippedWidth = cellWidth(stripped);
+  
+  if (strippedWidth <= width) {
+    return value + " ".repeat(Math.max(0, width - strippedWidth));
   }
 
   let out = "";
