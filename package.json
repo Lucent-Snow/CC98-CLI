@@ -8,7 +8,7 @@
   },
   "files": [
     "dist",
-    "docs/images/tui.jpg",
+    "images/tui.jpg",
     "CHANGELOG.md"
   ],
   "scripts": {

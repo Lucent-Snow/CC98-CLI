@@ -15,7 +15,7 @@ vibe coding 累了的话，不妨在终端里水水 98。
 ## 预览
 
 <p align="center">
-  <img src="docs/images/tui.jpg" alt="CC98-CLI TUI 截图" width="900">
+  <img src="images/tui.jpg" alt="CC98-CLI TUI 截图" width="900">
 </p>
 
 ## 安装

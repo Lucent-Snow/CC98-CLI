@@ -28,6 +28,15 @@ export async function messageCommand(args: string[]): Promise<void> {
       printJson(await client.getChatHistory(userId, page.from, page.size));
       return;
     }
+    case "send": {
+      const userId = parsePositiveInteger(rest[0], "user-id");
+      const content = rest.slice(1).join(" ").trim();
+      if (!content) {
+        throw new Error("usage: cc98 message send <user-id> <content>");
+      }
+      printJson(await client.sendMessage(userId, content));
+      return;
+    }
     default:
       throw new Error(`unknown message command: ${subcommand}`);
   }
@@ -40,5 +49,6 @@ Usage:
   cc98 message unread
   cc98 message recent [--from n] [--size n]
   cc98 message history <user-id> [--from n] [--size n]
+  cc98 message send <user-id> <content>
 `);
 }

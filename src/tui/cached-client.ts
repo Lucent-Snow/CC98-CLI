@@ -27,6 +27,10 @@ export class CachedCc98Client {
     return this.cache.getOrSet("forum:boards", 24 * hour, () => this.client.getAllBoards({ signal }), { force });
   }
 
+  getCardStat(force = false, signal?: AbortSignal): Promise<unknown> {
+    return this.cache.getOrSet("forum:card-stat", 5 * minute, () => this.client.getCardStat({ signal }), { force });
+  }
+
   getBoardInfo(boardId: number, force = false, signal?: AbortSignal): Promise<unknown> {
     return this.cache.getOrSet(`board:info:${boardId}`, 24 * hour, () => this.client.getBoardInfo(boardId, { signal }), { force });
   }
@@ -73,6 +77,14 @@ export class CachedCc98Client {
     return this.cache.getOrSet(`user:basic:${uniqueIds.join(",")}`, 10 * minute, () => this.client.getBasicUsers(uniqueIds, { signal }), { force });
   }
 
+  getUsers(ids: number[], force = false, signal?: AbortSignal): Promise<unknown> {
+    const uniqueIds = [...new Set(ids)].sort((a, b) => a - b);
+    if (uniqueIds.length === 0) {
+      return Promise.resolve([]);
+    }
+    return this.cache.getOrSet(`user:list:${uniqueIds.join(",")}`, 5 * minute, () => this.client.getUsers(uniqueIds, { signal }), { force });
+  }
+
   getMe(force = false, signal?: AbortSignal): Promise<unknown> {
     return this.cache.getOrSet("user:me", 60 * second, () => this.client.getMe({ signal }), { force });
   }
@@ -91,11 +103,146 @@ export class CachedCc98Client {
     );
   }
 
+  getRandomTopics(size = 10, force = false, signal?: AbortSignal): Promise<unknown> {
+    return this.cache.getOrSet(`topic:random:${size}`, 15 * second, () => this.client.getRandomTopics(size, { signal }), { force });
+  }
+
+  getFavoriteTopics(from = 0, size = 11, order = 1, groupId = 0, force = false, signal?: AbortSignal): Promise<unknown> {
+    return this.cache.getOrSet(
+      `topic:favorites:${from}:${size}:${order}:${groupId}`,
+      30 * second,
+      () => this.client.getFavoriteTopics(from, size, order, groupId, { signal }),
+      { force }
+    );
+  }
+
+  getTopicVote(topicId: number, force = false, signal?: AbortSignal): Promise<unknown> {
+    return this.cache.getOrSet(`topic:vote:${topicId}`, 60 * second, () => this.client.getTopicVote(topicId, { signal }), { force });
+  }
+
+  getPostReactionState(postId: number, force = false, signal?: AbortSignal): Promise<unknown> {
+    return this.cache.getOrSet(`post:reaction-state:${postId}`, 10 * second, () => this.client.getPostReactionState(postId, { signal }), { force });
+  }
+
+  getPostRateReasons(type: number, force = false, signal?: AbortSignal): Promise<unknown> {
+    return this.cache.getOrSet(`post:rate-reasons:${type}`, 24 * hour, () => this.client.getPostRateReasons(type, { signal }), { force });
+  }
+
   /**
    * Clear all caches (memory + file)
    */
   async clearCache(): Promise<void> {
     await this.cache.clearAll();
+  }
+
+  // 搜索
+
+  async searchTopics(keyword: string, from = 0, size = 20, force = false, signal?: AbortSignal): Promise<unknown> {
+    return this.cache.getOrSet(
+      `search:topics:${keyword}:${from}:${size}`,
+      30 * second,
+      () => this.client.searchTopics(keyword, from, size, { signal }),
+      { force }
+    );
+  }
+
+  async searchUsers(name: string, force = false, signal?: AbortSignal): Promise<unknown> {
+    return this.cache.getOrSet(
+      `search:users:${name}`,
+      30 * second,
+      () => this.client.searchUsers(name, { signal }),
+      { force }
+    );
+  }
+
+  getFriendIds(type: "follower" | "followee", from = 0, size = 10, force = false, signal?: AbortSignal): Promise<unknown> {
+    return this.cache.getOrSet(`user:${type}:${from}:${size}`, 60 * second, () => this.client.getFriendIds(type, from, size, { signal }), { force });
+  }
+
+  getFavoriteGroups(force = false, signal?: AbortSignal): Promise<unknown> {
+    return this.cache.getOrSet("user:favorite-groups", 5 * minute, () => this.client.getFavoriteGroups({ signal }), { force });
+  }
+
+  getNotices(type: "system" | "at" | "reply", from = 0, size = 10, force = false, signal?: AbortSignal): Promise<unknown> {
+    return this.cache.getOrSet(`notice:${type}:${from}:${size}`, 15 * second, () => this.client.getNotices(type, from, size, { signal }), { force });
+  }
+
+  getBrowseHistory(from = 0, size = 11, force = false, signal?: AbortSignal): Promise<unknown> {
+    return this.cache.getOrSet(`user:browse-history:${from}:${size}`, 30 * second, () => this.client.getBrowseHistory(from, size, { signal }), { force });
+  }
+
+  // 收藏
+
+  async isTopicFavorite(topicId: number, force = false, signal?: AbortSignal): Promise<boolean> {
+    const result = await this.cache.getOrSet(
+      `topic:is-favorite:${topicId}`,
+      60 * second,
+      () => this.client.isTopicFavorite(topicId, { signal }),
+      { force }
+    );
+    return Boolean(result);
+  }
+
+  async addFavorite(topicId: number, groupId = 0): Promise<unknown> {
+    const result = await this.client.addFavorite(topicId, groupId);
+    this.cache.delete(`topic:is-favorite:${topicId}`);
+    return result;
+  }
+
+  async removeFavorite(topicId: number): Promise<unknown> {
+    const result = await this.client.removeFavorite(topicId);
+    this.cache.delete(`topic:is-favorite:${topicId}`);
+    return result;
+  }
+
+  // 点赞/踩
+
+  async reactToPost(postId: number, isLike: boolean): Promise<unknown> {
+    return this.client.reactToPost(postId, isLike);
+  }
+
+  // 用户
+
+  async getUserProfile(userId: number, force = false, signal?: AbortSignal): Promise<unknown> {
+    return this.cache.getOrSet(
+      `user:profile:${userId}`,
+      5 * minute,
+      () => this.client.getUserProfile(userId, { signal }),
+      { force }
+    );
+  }
+
+  async getRecentTopics(userId: number | undefined, from = 0, size = 11, force = false, signal?: AbortSignal): Promise<unknown> {
+    return this.cache.getOrSet(
+      `user:recent-topics:${userId ?? "me"}:${from}:${size}`,
+      30 * second,
+      () => this.client.getRecentTopics(userId, from, size, { signal }),
+      { force }
+    );
+  }
+
+  async followUser(userId: number): Promise<unknown> {
+    const result = await this.client.followUser(userId);
+    this.cache.delete(`user:profile:${userId}`);
+    return result;
+  }
+
+  async unfollowUser(userId: number): Promise<unknown> {
+    const result = await this.client.unfollowUser(userId);
+    this.cache.delete(`user:profile:${userId}`);
+    return result;
+  }
+
+  // 私信
+
+  async sendMessage(userId: number, content: string): Promise<unknown> {
+    return this.client.sendMessage(userId, content);
+  }
+
+  // 签到
+
+  async signin(): Promise<unknown> {
+    return this.client.signin();
   }
 
   /**

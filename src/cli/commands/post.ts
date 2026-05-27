@@ -24,6 +24,16 @@ export async function postCommand(args: string[]): Promise<void> {
       printJson(await client.getPostRateReasons(type));
       return;
     }
+    case "like": {
+      const postId = parsePositiveInteger(rest[0], "post-id");
+      printJson(await client.reactToPost(postId, true));
+      return;
+    }
+    case "dislike": {
+      const postId = parsePositiveInteger(rest[0], "post-id");
+      printJson(await client.reactToPost(postId, false));
+      return;
+    }
     default:
       throw new Error(`unknown post command: ${subcommand}`);
   }
@@ -35,5 +45,7 @@ function printPostHelp(): void {
 Usage:
   cc98 post reaction-state <post-id>
   cc98 post rate-reasons <type>
+  cc98 post like <post-id>
+  cc98 post dislike <post-id>
 `);
 }

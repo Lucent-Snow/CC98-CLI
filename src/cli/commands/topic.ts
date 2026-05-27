@@ -78,16 +78,6 @@ export async function topicCommand(args: string[]): Promise<void> {
       printJson(await client.getRecentTopics(userId, page.from, page.size));
       return;
     }
-    case "favorite": {
-      const favoriteOptions = parseFavoriteOptions(rest);
-      printJson(await client.getFavoriteTopics(
-        favoriteOptions.from,
-        favoriteOptions.size,
-        favoriteOptions.order,
-        favoriteOptions.groupId
-      ));
-      return;
-    }
     case "is-favorite": {
       const topicId = parsePositiveInteger(rest[0], "topic-id");
       printJson(await client.isTopicFavorite(topicId));
@@ -108,6 +98,47 @@ export async function topicCommand(args: string[]): Promise<void> {
         throw new Error("usage: cc98 topic search <keyword> [--from n] [--size n]");
       }
       printJson(await client.searchTopics(keyword, page.from, page.size));
+      return;
+    }
+    case "create": {
+      const boardId = parsePositiveInteger(rest[0], "board-id");
+      const title = rest[1];
+      const content = rest.slice(2).join(" ");
+      if (!title || !content) {
+        throw new Error("usage: cc98 topic create <board-id> <title> <content>");
+      }
+      printJson(await client.createTopic(boardId, title, content));
+      return;
+    }
+    case "reply": {
+      const topicId = parsePositiveInteger(rest[0], "topic-id");
+      const content = rest.slice(1).join(" ");
+      if (!content) {
+        throw new Error("usage: cc98 topic reply <topic-id> <content>");
+      }
+      printJson(await client.replyTopic(topicId, content));
+      return;
+    }
+    case "favorite": {
+      const action = rest[0];
+      if (action === "add" || action === "remove") {
+        const topicId = parsePositiveInteger(rest[1], "topic-id");
+        const groupId = rest[2] ? parseNonNegativeInteger(rest[2], "group-id") : 0;
+        if (action === "add") {
+          printJson(await client.addFavorite(topicId, groupId));
+        } else {
+          printJson(await client.removeFavorite(topicId));
+        }
+        return;
+      }
+      // 原有的 favorite 列表逻辑
+      const favoriteOptions = parseFavoriteOptions(rest);
+      printJson(await client.getFavoriteTopics(
+        favoriteOptions.from,
+        favoriteOptions.size,
+        favoriteOptions.order,
+        favoriteOptions.groupId
+      ));
       return;
     }
     default:
@@ -238,10 +269,14 @@ Usage:
   cc98 topic random [--size n]
   cc98 topic recent [--me | --user id] [--from n] [--size n]
   cc98 topic favorite [--group id] [--order n] [--from n] [--size n]
+  cc98 topic favorite add <topic-id> [group-id]
+  cc98 topic favorite remove <topic-id>
   cc98 topic is-favorite <topic-id>
   cc98 topic vote <topic-id>
   cc98 topic basic <ids...>
   cc98 topic search <keyword> [--from n] [--size n]
+  cc98 topic create <board-id> <title> <content>
+  cc98 topic reply <topic-id> <content>
 
 Output:
   Default output is JSON.

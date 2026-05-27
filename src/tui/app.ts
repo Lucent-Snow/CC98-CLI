@@ -7,9 +7,12 @@ import { CachedCc98Client } from "./cached-client.js";
 import { Terminal } from "./terminal.js";
 import { renderUbbToLines } from "./ubb-renderer.js";
 
-type ViewId = "hot" | "new" | "boards" | "following" | "favorite" | "messages" | "me" | "settings";
+type ViewId = "hot" | "new" | "boards" | "following" | "favorite" | "messages" | "notices" | "me" | "more" | "settings";
 type FocusColumn = "nav" | "content";
-type ModalType = "menu" | "help" | null;
+type ModalType = "menu" | "help" | "search" | "user" | "info" | null;
+type TabId = "default" | "posts" | "boards" | "chat" | "notices" | "history" | "followers" | "followees" | "favorites" | "signin" | "my-topics";
+type SearchMode = "topics" | "users";
+type NoticeType = "system" | "at" | "reply";
 
 interface NavItem {
   id: ViewId;
@@ -24,11 +27,13 @@ interface ContentItem {
   topicId?: number;
   boardId?: number;
   chatUserId?: number;
+  userId?: number;
+  action?: string;
   sortTime?: number;
 }
 
 interface TuiState {
-  mode: "list" | "topic" | "settings";
+  mode: "list" | "topic" | "settings" | "user-detail";
   focus: FocusColumn;
   navIndex: number;
   itemIndex: number;
@@ -49,6 +54,30 @@ interface TuiState {
   modal: ModalType;
   menuIndex: number;
   menuItems: MenuItem[];
+  tabId: TabId;
+  tabs: { id: TabId; label: string }[];
+  searchMode: SearchMode;
+  searchQuery: string;
+  searchResults: ContentItem[];
+  userDetail?: UserDetailState;
+  noticeType: NoticeType;
+  inputMode: boolean;
+  inputPrompt: string;
+  inputValue: string;
+  inputCallback?: (value: string) => void;
+  infoTitle?: string;
+  infoLines: string[];
+}
+
+interface UserDetailState {
+  userId: number;
+  name: string;
+  level?: string;
+  postCount?: number;
+  fanCount?: number;
+  followCount?: number;
+  isFollowing?: boolean;
+  recentTopics?: ContentItem[];
 }
 
 interface ListSnapshot {
@@ -88,6 +117,7 @@ interface TopicReaderState {
 
 interface TopicPostEntry {
   id?: number;
+  userId?: number;
   floor?: number;
   author: string;
   time: string;
@@ -147,7 +177,9 @@ const navItems: NavItem[] = [
   { id: "boards", label: "版面", hint: "所有分区" },
   { id: "following", label: "关注", hint: "用户动态" },
   { id: "messages", label: "消息", hint: "未读与私信" },
+  { id: "notices", label: "通知", hint: "系统与回复" },
   { id: "me", label: "我的", hint: "当前账号" },
+  { id: "more", label: "更多", hint: "只读内容" },
   { id: "settings", label: "设置", hint: "账号与配置" }
 ];
 
@@ -179,7 +211,17 @@ export async function runTui(): Promise<void> {
     overview: [],
     modal: null,
     menuIndex: 0,
-    menuItems: []
+    menuItems: [],
+    tabId: "default",
+    tabs: [],
+    searchMode: "topics",
+    searchQuery: "",
+    searchResults: [],
+    noticeType: "system",
+    inputMode: false,
+    inputPrompt: "",
+    inputValue: "",
+    infoLines: []
   };
 
   terminal.enter();
@@ -277,6 +319,33 @@ export async function runTui(): Promise<void> {
       };
 
       const offKey = terminal.onKey((key) => {
+        // Input mode
+        if (state.inputMode) {
+          if (key === "\x1b") {
+            state.inputMode = false;
+            state.inputValue = "";
+            render();
+            return;
+          }
+          if (key === "\r") {
+            if (state.inputCallback) {
+              state.inputCallback(state.inputValue);
+            }
+            return;
+          }
+          if (key === "\x7f") {
+            state.inputValue = state.inputValue.slice(0, -1);
+            render();
+            return;
+          }
+          if (key.length === 1 && key >= " ") {
+            state.inputValue += key;
+            render();
+            return;
+          }
+          return;
+        }
+
         // Global: Ctrl+C or q to quit
         if (key === "\u0003" || key === "q") {
           close();
@@ -295,6 +364,96 @@ export async function runTui(): Promise<void> {
           if (key === "h" || key === "\x1b[D" || key === "\x1b" || key === "?" || key === "\r") {
             state.modal = null;
             render();
+          }
+          return;
+        }
+
+        if (state.modal === "search") {
+          if (key === "\x1b") {
+            state.modal = null;
+            state.searchQuery = "";
+            render();
+            return;
+          }
+          if (key === "\t") {
+            state.searchMode = state.searchMode === "topics" ? "users" : "topics";
+            state.searchResults = [];
+            state.itemIndex = 0;
+            render();
+            return;
+          }
+          if ((key === "j" || key === "\x1b[B") && state.searchResults.length > 0) {
+            state.itemIndex = Math.min(state.searchResults.length - 1, state.itemIndex + 1);
+            render();
+            return;
+          }
+          if ((key === "k" || key === "\x1b[A") && state.searchResults.length > 0) {
+            state.itemIndex = Math.max(0, state.itemIndex - 1);
+            render();
+            return;
+          }
+          if (key === "\r") {
+            const selected = state.searchResults[state.itemIndex];
+            if (selected) {
+              state.modal = null;
+              void activateContentItem(client, state, selected, render, nextSignal());
+            } else if (state.searchQuery.trim()) {
+              void performSearch(client, state, render, nextSignal());
+            }
+            return;
+          }
+          if (key === "\x7f") {
+            state.searchQuery = state.searchQuery.slice(0, -1);
+            state.searchResults = [];
+            state.itemIndex = 0;
+            render();
+            return;
+          }
+          if (key.length === 1 && key >= " ") {
+            state.searchQuery += key;
+            state.searchResults = [];
+            state.itemIndex = 0;
+            render();
+            return;
+          }
+          return;
+        }
+
+        if (state.modal === "info") {
+          if (key === "h" || key === "\x1b[D" || key === "\x1b" || key === "\r" || key === "q") {
+            state.modal = null;
+            state.infoTitle = undefined;
+            state.infoLines = [];
+            render();
+          }
+          return;
+        }
+
+        if (state.modal === "user") {
+          if (key === "\x1b") {
+            state.modal = null;
+            state.userDetail = undefined;
+            render();
+            return;
+          }
+          if (key === "f" && state.userDetail) {
+            void toggleFollow(client, state, render);
+            return;
+          }
+          if (key === "m" && state.userDetail) {
+            state.inputMode = true;
+            state.inputPrompt = `发送私信给 ${state.userDetail.name}: `;
+            state.inputValue = "";
+            state.inputCallback = (value: string) => {
+              if (value.trim() && state.userDetail) {
+                void sendPrivateMessage(client, state, state.userDetail.userId, value.trim(), render);
+              }
+              state.inputMode = false;
+              state.inputValue = "";
+              render();
+            };
+            render();
+            return;
           }
           return;
         }
@@ -411,6 +570,30 @@ export async function runTui(): Promise<void> {
             if (state.topic) {
               void openTopic(client, state, state.topic.topicId, render, true, nextSignal());
             }
+            return;
+          }
+          if (key === "s" && state.topic) {
+            void toggleFavorite(client, state, render);
+            return;
+          }
+          if (key === "l" && state.topic) {
+            void reactToCurrentPost(client, state, true, render);
+            return;
+          }
+          if (key === "d" && state.topic) {
+            void reactToCurrentPost(client, state, false, render);
+            return;
+          }
+          if (key === "u" && state.topic) {
+            void showUserDetail(client, state, render, nextSignal());
+            return;
+          }
+          if (key === "v" && state.topic) {
+            void showTopicVote(client, state, render, nextSignal());
+            return;
+          }
+          if (key === "a" && state.topic) {
+            void showPostReactionState(client, state, render, nextSignal());
             return;
           }
           if (key === "o") {
@@ -560,16 +743,8 @@ export async function runTui(): Promise<void> {
         }
         if (key === "l" || key === "\x1b[C") {
           const selected = state.items[state.itemIndex];
-          if (selected?.topicId !== undefined) {
-            void openTopic(client, state, selected.topicId, render, false, nextSignal());
-            return;
-          }
-          if (selected?.boardId !== undefined) {
-            void openBoard(client, state, selected.boardId, selected.title, render, false, nextSignal());
-            return;
-          }
-          if (selected?.chatUserId !== undefined) {
-            void openChat(client, state, selected.chatUserId, selected.title, render, false, nextSignal());
+          if (selected) {
+            void activateContentItem(client, state, selected, render, nextSignal());
             return;
           }
           state.status = "当前条目不可进入";
@@ -578,16 +753,8 @@ export async function runTui(): Promise<void> {
         }
         if (key === "\r") {
           const selected = state.items[state.itemIndex];
-          if (selected?.topicId !== undefined) {
-            void openTopic(client, state, selected.topicId, render, false, nextSignal());
-            return;
-          }
-          if (selected?.boardId !== undefined) {
-            void openBoard(client, state, selected.boardId, selected.title, render, false, nextSignal());
-            return;
-          }
-          if (selected?.chatUserId !== undefined) {
-            void openChat(client, state, selected.chatUserId, selected.title, render, false, nextSignal());
+          if (selected) {
+            void activateContentItem(client, state, selected, render, nextSignal());
             return;
           }
           state.status = "当前条目不可进入";
@@ -608,6 +775,14 @@ export async function runTui(): Promise<void> {
             return;
           }
           void load(true);
+          return;
+        }
+        if (key === "/") {
+          state.modal = "search";
+          state.searchQuery = "";
+          state.searchResults = [];
+          state.searchMode = "topics";
+          render();
           return;
         }
         if (key === "o") {
@@ -727,7 +902,10 @@ async function openBoard(
 
   try {
     const topics = asArray(await client.getBoardTopics(boardId, 0, 12, false, force, signal));
-    state.items = topics.map((topic) => topicItem(topic));
+    state.items = [
+      { title: "精华帖", meta: `board #${boardId}`, detail: "查看本版精华主题", action: `board-best:${boardId}` },
+      ...topics.map((topic) => topicItem(topic))
+    ];
     state.stats = [
       { title: "版面", detail: `#${boardId}` },
       { title: "主题", detail: `${topics.length} 条` },
@@ -959,7 +1137,9 @@ function renderPosts(posts: unknown[], width: number, lineOffset = 0): {
     const postLines: TopicLineEntry[] = [];
     const floorNumber = asNumber(post.floor);
     const floor = floorNumber !== undefined ? `#${floorNumber}` : "#?";
-    const author = String(post.userName ?? "匿名");
+    const user = asObject(post.user ?? post.User);
+    const userId = asNumber(post.userId ?? post.UserId ?? user.id ?? user.Id);
+    const author = String(post.userName ?? post.UserName ?? user.name ?? user.Name ?? "匿名");
     const time = typeof post.time === "string" ? post.time.replace("T", " ").slice(0, 16) : "";
     const likeCount = asNumber(post.likeCount) ?? 0;
     const dislikeCount = asNumber(post.dislikeCount) ?? 0;
@@ -1013,6 +1193,7 @@ function renderPosts(posts: unknown[], width: number, lineOffset = 0): {
     ) ?? "";
     entries.push({
       id: asNumber(post.id),
+      userId,
       floor: floorNumber,
       author,
       time,
@@ -1209,9 +1390,10 @@ async function loadView(client: CachedCc98Client, view: ViewId, force: boolean, 
       };
     }
     case "favorite": {
-      const [meRaw, sectionsRaw] = await Promise.all([
+      const [meRaw, sectionsRaw, topicFavorites] = await Promise.all([
         client.getMe(force, signal),
-        client.getAllBoards(false, signal)
+        client.getAllBoards(false, signal),
+        client.getFavoriteTopics(0, 6, 1, 0, force, signal)
       ]);
       const customBoards = asArray(asObject(meRaw).customBoards).filter((id): id is number => typeof id === "number");
       const allBoards = flattenBoards(asArray(sectionsRaw));
@@ -1221,16 +1403,23 @@ async function loadView(client: CachedCc98Client, view: ViewId, force: boolean, 
         const topics = asArray(await client.getBoardTopics(boardId, 0, 3, false, force, signal));
         return topics.map((topic) => topicItem(topic, board));
       });
-      const items = topicGroups.flat().sort((left, right) => (right.sortTime ?? 0) - (left.sortTime ?? 0)).slice(0, 18);
+      const boardTopics = topicGroups.flat().sort((left, right) => (right.sortTime ?? 0) - (left.sortTime ?? 0)).slice(0, 12);
+      const items = [
+        { title: "收藏主题", meta: "topic/me/favorite", detail: "打开收藏夹主题列表", action: "favorite-topics" },
+        { title: "收藏分组", meta: "me/favorite-topic-group", detail: "查看收藏夹分组", action: "favorite-groups" },
+        ...asArray(topicFavorites).slice(0, 6).map((topic) => topicItem(topic)),
+        ...boardTopics
+      ];
       return {
         title: "收藏",
         items,
         stats: [
           { title: "收藏版面", detail: `${customBoards.length} 个` },
-          { title: "主题", detail: `${items.length} 条` },
+          { title: "收藏主题", detail: `${asArray(topicFavorites).length} 条` },
+          { title: "版面主题", detail: `${boardTopics.length} 条` },
           { title: "缓存", detail: "boards 24h / topics 30s" }
         ],
-        status: "收藏：j/k 选择  l 打开帖子  h 返回  r 刷新"
+        status: "收藏：j/k 选择  l 打开  h 返回  r 刷新"
       };
     }
     case "messages": {
@@ -1248,6 +1437,19 @@ async function loadView(client: CachedCc98Client, view: ViewId, force: boolean, 
         status: "消息：j/k 选择  l 打开会话  h 返回  r 刷新"
       };
     }
+    case "notices": {
+      const unread = asObject(await client.getUnreadCount(force, signal));
+      return {
+        title: "通知",
+        items: [
+          { title: "系统通知", meta: `${unread.systemCount ?? 0} 未读`, detail: "查看系统通知列表", action: "notices:system" },
+          { title: "@ 通知", meta: `${unread.atCount ?? 0} 未读`, detail: "查看提到我的通知", action: "notices:at" },
+          { title: "回复通知", meta: `${unread.replyCount ?? 0} 未读`, detail: "查看回复我的通知", action: "notices:reply" }
+        ],
+        stats: unreadStats(unread),
+        status: "通知：j/k 选择  l 打开列表  h 返回  r 刷新"
+      };
+    }
     case "me": {
       const [me, cacheStats] = await Promise.all([
         client.getMe(force, signal),
@@ -1262,12 +1464,40 @@ async function loadView(client: CachedCc98Client, view: ViewId, force: boolean, 
           item("等级", meObject.levelTitle ?? meObject.groupName),
           item("发帖数", meObject.postCount),
           item("财富", meObject.wealth),
+          item("签到", "Enter 执行", "signin"),
+          { title: "我的最近主题", meta: "me/recent-topic", detail: "查看自己最近发布或回复的主题", action: "recent-topics" },
+          { title: "浏览历史", meta: "me/browsing-record", detail: "查看最近浏览过的主题", action: "browse-history" },
+          { title: "我的粉丝", meta: `${meObject.fanCount ?? "-"} 人`, detail: "查看粉丝列表", action: "followers" },
+          { title: "我的关注", meta: `${meObject.followCount ?? "-"} 人`, detail: "查看关注列表", action: "followees" },
           item("关注", meObject.followCount),
           item("粉丝", meObject.fanCount)
         ],
         stats: [
           { title: "登录状态", detail: "已登录" }
         ]
+      };
+    }
+    case "more": {
+      return {
+        title: "更多",
+        items: [
+          { title: "随机主题", meta: "topic/random-recent", detail: "随机读取一组最近主题", action: "random-topics" },
+          { title: "我的最近主题", meta: "me/recent-topic", detail: "查看自己最近发布或回复的主题", action: "recent-topics" },
+          { title: "浏览历史", meta: "me/browsing-record", detail: "查看最近浏览过的主题", action: "browse-history" },
+          { title: "收藏主题", meta: "topic/me/favorite", detail: "查看收藏夹主题", action: "favorite-topics" },
+          { title: "收藏更新", meta: "topic/me/favorite?order=1", detail: "查看收藏主题更新", action: "favorite-updates" },
+          { title: "收藏分组", meta: "me/favorite-topic-group", detail: "查看收藏夹分组", action: "favorite-groups" },
+          { title: "粉丝列表", meta: "me/follower", detail: "查看关注我的用户", action: "followers" },
+          { title: "关注列表", meta: "me/followee", detail: "查看我关注的用户", action: "followees" },
+          { title: "全站统计", meta: "card.cc98.org/api/collection/stat", detail: "查看论坛全站统计", action: "card-stat" },
+          { title: "评分原因: 普通", meta: "post/rating-reason?type=0", detail: "查看普通评分原因", action: "rate-reasons:0" },
+          { title: "评分原因: 管理", meta: "post/rating-reason?type=1", detail: "查看管理评分原因", action: "rate-reasons:1" }
+        ],
+        stats: [
+          { title: "只读入口", detail: "11 个" },
+          { title: "写入", detail: "不含发帖/回帖" }
+        ],
+        status: "更多：j/k 选择  l 打开只读内容  h 返回  r 刷新"
       };
     }
     case "settings": {
@@ -1326,6 +1556,15 @@ function draw(state: TuiState, size: { columns: number; rows: number }): string 
   }
   if (state.modal === "menu") {
     return drawMenuModal(lines, state, width, height);
+  }
+  if (state.modal === "search") {
+    return drawSearchModal(lines, state, width, height);
+  }
+  if (state.modal === "user") {
+    return drawUserDetailModal(lines, state, width, height);
+  }
+  if (state.modal === "info") {
+    return drawInfoModal(lines, state, width, height);
   }
 
   return lines.slice(0, height).join("\n");
@@ -1491,6 +1730,9 @@ function drawTopic(state: TuiState, width: number, height: number): string[] {
 }
 
 function drawStatusBar(state: TuiState, width: number): string {
+  if (state.inputMode) {
+    return fit(`${cc98Blue} ${state.inputPrompt}${state.inputValue}${ansi.reset}`, width);
+  }
   const left = getStatus(state);
   const right = getKeyHints(state);
   const padding = Math.max(1, width - cellWidth(left) - cellWidth(right) - 2);
@@ -1506,6 +1748,12 @@ function getKeyHints(state: TuiState): string {
   hints.push("Enter 确认");
 
   if (state.mode === "topic") {
+    hints.push("s 收藏");
+    hints.push("l 赞");
+    hints.push("d 踩");
+    hints.push("u 用户");
+    hints.push("v 投票");
+    hints.push("a 状态");
     hints.push("n 下页");
     hints.push("【/】楼层");
     hints.push("数字跳楼");
@@ -1513,6 +1761,7 @@ function getKeyHints(state: TuiState): string {
     hints.push("n 更多");
   }
 
+  hints.push("/ 搜索");
   hints.push("r 刷新");
   hints.push("o 操作");
   hints.push("? 帮助");
@@ -1537,12 +1786,23 @@ function drawHelpModal(baseLines: string[], width: number, height: number): stri
     "   h, ←        返回上一层",
     "   Enter       确认/执行",
     "",
-    " 操作",
+    " 全局",
+    "   /           搜索",
+    "   ?           显示/关闭帮助",
     "   r           刷新当前视图",
     "   n, Space    加载更多",
     "   o           打开操作菜单",
-    "   ?           显示/关闭帮助",
     "   q           退出程序",
+    "",
+    " 帖子详情",
+    "   s           收藏/取消收藏",
+    "   l           点赞",
+    "   d           踩",
+    "   u           查看用户",
+    "   v           查看投票",
+    "   a           查看点赞状态",
+    "   【/】       上/下楼层",
+    "   数字+Enter  跳转楼层",
     "",
     " 按任意键关闭"
   ];
@@ -1608,6 +1868,32 @@ function replaceAt(str: string, index: number, replacement: string): string {
   const afterWidth = Math.max(0, cellWidth(str) - index - cellWidth(replacement));
   const after = " ".repeat(afterWidth);
   return `${before}${replacement}${after}`;
+}
+
+function drawInfoModal(baseLines: string[], state: TuiState, width: number, height: number): string {
+  const modalWidth = Math.min(72, width - 4);
+  const modalHeight = Math.min(Math.max(10, state.infoLines.length + 5), height - 4);
+  const startRow = Math.floor((height - modalHeight) / 2);
+  const startCol = Math.floor((width - modalWidth) / 2);
+  const content = [
+    "",
+    `${cc98Blue}${ansi.bold} ${state.infoTitle ?? "详情"}${ansi.reset}`,
+    "",
+    ...state.infoLines.flatMap((value) => wrapText(value, modalWidth - 2).map((row) => ` ${row}`)),
+    "",
+    ` ${muted}Esc/Enter 关闭${ansi.reset}`
+  ];
+
+  const result = [...baseLines];
+  for (let i = 0; i < modalHeight && i < content.length; i++) {
+    const row = startRow + i;
+    if (row >= 0 && row < result.length) {
+      const padded = fit(content[i] ?? "", modalWidth);
+      result[row] = replaceAt(result[row], startCol, `${bg(5, 46, 74)}${padded}${ansi.reset}`);
+    }
+  }
+
+  return result.slice(0, height).join("\n");
 }
 
 function drawRight(state: TuiState, width: number, height: number): string[] {
@@ -1693,6 +1979,11 @@ function drawItemRight(state: TuiState, width: number, height: number): string[]
   } else if (selected.chatUserId !== undefined) {
     rows.push(fit(`${muted} 用户 #${selected.chatUserId}${ansi.reset}`, width));
     rows.push(fit(`${cc98BlueSoft} l 打开会话${ansi.reset}`, width));
+  } else if (selected.userId !== undefined) {
+    rows.push(fit(`${muted} 用户 #${selected.userId}${ansi.reset}`, width));
+    rows.push(fit(`${cc98BlueSoft} l 查看用户${ansi.reset}`, width));
+  } else if (selected.action !== undefined || selected.meta === "signin") {
+    rows.push(fit(`${cc98BlueSoft} l/Enter 执行${ansi.reset}`, width));
   } else if (state.mode === "settings") {
     rows.push(fit(`${cc98BlueSoft} l/Enter 执行${ansi.reset}`, width));
   }
@@ -1794,24 +2085,96 @@ function item(title: string, value: unknown, meta?: string): ContentItem {
 
 function topicItem(value: unknown, fallbackBoard?: ContentItem): ContentItem {
   const topic = asObject(value);
-  const topicId = asNumber(topic.id ?? topic.Id);
-  const boardId = asNumber(topic.boardId ?? topic.BoardId) ?? fallbackBoard?.boardId;
+  const nestedTopic = asObject(topic.topic ?? topic.Topic);
+  const source = Object.keys(nestedTopic).length > 0 ? nestedTopic : topic;
+  const topicId = asNumber(source.id ?? source.Id ?? topic.topicId ?? topic.TopicId);
+  const boardId = asNumber(source.boardId ?? source.BoardId) ?? fallbackBoard?.boardId;
   const boardName = topic.boardName ?? topic.BoardName ?? fallbackBoard?.title;
   return {
-    title: String(topic.title ?? topic.Title ?? `#${topicId ?? ""}`),
+    title: String(source.title ?? source.Title ?? topic.title ?? topic.Title ?? `#${topicId ?? ""}`),
     meta: [
       boardName,
-      topic.userName ?? topic.authorName,
-      topic.replyCount !== undefined ? `${topic.replyCount} 回复` : undefined,
-      topic.hitCount !== undefined ? `${topic.hitCount} 浏览` : undefined
+      source.userName ?? source.authorName ?? topic.userName ?? topic.authorName,
+      source.replyCount !== undefined ? `${source.replyCount} 回复` : topic.replyCount !== undefined ? `${topic.replyCount} 回复` : undefined,
+      source.hitCount !== undefined ? `${source.hitCount} 浏览` : topic.hitCount !== undefined ? `${topic.hitCount} 浏览` : undefined
     ]
       .filter(Boolean)
       .join(" · "),
-    detail: typeof topic.lastPostContent === "string" ? topic.lastPostContent.replace(/\s+/g, " ") : undefined,
+    detail: normalizeInline(String(source.lastPostContent ?? source.content ?? topic.lastPostContent ?? topic.content ?? "")) || undefined,
     topicId,
     boardId,
-    sortTime: timestampOf(topic.lastPostTime ?? topic.updateTime ?? topic.time ?? topic.createTime)
+    sortTime: timestampOf(source.lastPostTime ?? source.updateTime ?? source.time ?? source.createTime ?? topic.lastPostTime ?? topic.updateTime ?? topic.time)
   };
+}
+
+function userItem(value: unknown): ContentItem {
+  const user = asObject(value);
+  const userId = asNumber(user.id ?? user.Id ?? user.userId ?? user.UserId);
+  return {
+    title: String(user.name ?? user.Name ?? user.userName ?? user.UserName ?? (userId !== undefined ? `#${userId}` : "用户")),
+    meta: [
+      userId !== undefined ? `#${userId}` : undefined,
+      user.postCount !== undefined ? `${user.postCount} 帖` : undefined,
+      user.levelTitle ?? user.groupName
+    ].filter(Boolean).join(" · "),
+    detail: normalizeInline(String(user.introduction ?? user.signature ?? user.Signature ?? "")) || undefined,
+    userId
+  };
+}
+
+function genericItem(value: unknown, fallbackTitle: string): ContentItem {
+  const object = asObject(value);
+  const id = asNumber(object.id ?? object.Id ?? object.groupId ?? object.GroupId);
+  const title = String(object.name ?? object.Name ?? object.title ?? object.Title ?? object.reason ?? object.Reason ?? (id !== undefined ? `#${id}` : fallbackTitle));
+  const detail = normalizeInline(String(object.description ?? object.content ?? object.Content ?? object.message ?? object.Message ?? JSON.stringify(value)));
+  return {
+    title,
+    meta: id !== undefined ? `#${id}` : undefined,
+    detail
+  };
+}
+
+function noticeItem(value: unknown): ContentItem {
+  const notice = asObject(value);
+  const topic = asObject(notice.topic ?? notice.Topic);
+  const topicId = asNumber(notice.topicId ?? notice.TopicId ?? topic.id ?? topic.Id);
+  const time = typeof notice.time === "string"
+    ? notice.time.replace("T", " ").slice(0, 16)
+    : typeof notice.createTime === "string"
+      ? notice.createTime.replace("T", " ").slice(0, 16)
+      : undefined;
+  return {
+    title: String(notice.title ?? notice.Title ?? notice.type ?? notice.Type ?? topic.title ?? "通知"),
+    meta: [time, topicId !== undefined ? `主题 #${topicId}` : undefined].filter(Boolean).join(" · "),
+    detail: normalizeInline(String(notice.content ?? notice.Content ?? notice.message ?? notice.Message ?? "")) || undefined,
+    topicId
+  };
+}
+
+function historyItem(value: unknown): ContentItem {
+  const itemValue = topicItem(value);
+  const history = asObject(value);
+  const time = history.time ?? history.Time ?? history.lastViewTime ?? history.LastViewTime ?? history.createTime;
+  return {
+    ...itemValue,
+    meta: [itemValue.meta, time !== undefined ? `浏览 ${String(time).replace("T", " ").slice(0, 16)}` : undefined].filter(Boolean).join(" · ")
+  };
+}
+
+async function loadFriendUsers(
+  client: CachedCc98Client,
+  type: "follower" | "followee",
+  signal?: AbortSignal
+): Promise<ContentItem[]> {
+  const raw = asArray(await client.getFriendIds(type, 0, 20, false, signal));
+  if (raw.length === 0) {
+    return [];
+  }
+  if (raw.every((value) => asNumber(value) !== undefined)) {
+    const ids = raw.map((value) => asNumber(value)).filter((id): id is number => id !== undefined);
+    return asArray(await client.getBasicUsers(ids, false, signal)).map((user) => userItem(user));
+  }
+  return raw.map((user) => userItem(user));
 }
 
 async function loadChatUserNames(client: CachedCc98Client, chats: unknown[], force: boolean, signal?: AbortSignal): Promise<Map<number, string>> {
@@ -1952,7 +2315,13 @@ function asArray(value: unknown): unknown[] {
 }
 
 function asNumber(value: unknown): number | undefined {
-  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+  if (typeof value === "string" && /^\d+$/.test(value)) {
+    return Number(value);
+  }
+  return undefined;
 }
 
 function normalizeInline(value: string): string {
@@ -2041,4 +2410,597 @@ function charCellWidth(char: string): number {
     return 2;
   }
   return 1;
+}
+
+// 新增功能函数
+
+async function activateContentItem(
+  client: CachedCc98Client,
+  state: TuiState,
+  selected: ContentItem,
+  render: () => void,
+  signal?: AbortSignal
+): Promise<void> {
+  if (selected.topicId !== undefined) {
+    await openTopic(client, state, selected.topicId, render, false, signal);
+    return;
+  }
+  if (selected.boardId !== undefined) {
+    await openBoard(client, state, selected.boardId, selected.title, render, false, signal);
+    return;
+  }
+  if (selected.chatUserId !== undefined) {
+    await openChat(client, state, selected.chatUserId, selected.title, render, false, signal);
+    return;
+  }
+  if (selected.userId !== undefined) {
+    await showUserDetailById(client, state, selected.userId, render, signal);
+    return;
+  }
+  if (selected.meta === "signin") {
+    await signin(client, state, render);
+    return;
+  }
+  if (selected.action) {
+    await runReadOnlyAction(client, state, selected.action, render, signal);
+    return;
+  }
+
+  state.status = "当前条目不可进入";
+  render();
+}
+
+async function runReadOnlyAction(
+  client: CachedCc98Client,
+  state: TuiState,
+  action: string,
+  render: () => void,
+  signal?: AbortSignal
+): Promise<void> {
+  if (action.startsWith("notices:")) {
+    await openNoticeList(client, state, action.slice("notices:".length) as NoticeType, render, signal);
+    return;
+  }
+  if (action === "favorite-topics") {
+    await openReadOnlyList(client, state, "收藏主题", "正在读取收藏主题...", render, signal, async () => {
+      const topics = asArray(await client.getFavoriteTopics(0, 20, 1, 0, false, signal));
+      return {
+        items: topics.map((topic) => topicItem(topic)),
+        stats: [{ title: "收藏主题", detail: `${topics.length} 条` }],
+        status: "收藏主题：j/k 选择  l 打开帖子  h 返回  r 刷新"
+      };
+    });
+    return;
+  }
+  if (action === "favorite-updates") {
+    await openReadOnlyList(client, state, "收藏更新", "正在读取收藏更新...", render, signal, async () => {
+      const topics = asArray(await client.getFavoriteUpdates(0, 20, false, signal));
+      return {
+        items: topics.map((topic) => topicItem(topic)),
+        stats: [{ title: "收藏更新", detail: `${topics.length} 条` }],
+        status: "收藏更新：j/k 选择  l 打开帖子  h 返回"
+      };
+    });
+    return;
+  }
+  if (action === "favorite-groups") {
+    await openReadOnlyList(client, state, "收藏分组", "正在读取收藏分组...", render, signal, async () => {
+      const groups = asArray(await client.getFavoriteGroups(false, signal));
+      return {
+        items: groups.map((group) => genericItem(group, "收藏分组")),
+        stats: [{ title: "分组", detail: `${groups.length} 个` }],
+        status: "收藏分组：j/k 查看  h 返回  r 刷新"
+      };
+    });
+    return;
+  }
+  if (action === "followers" || action === "followees") {
+    const type = action === "followers" ? "follower" : "followee";
+    const title = action === "followers" ? "粉丝列表" : "关注列表";
+    await openReadOnlyList(client, state, title, `正在读取${title}...`, render, signal, async () => {
+      const users = await loadFriendUsers(client, type, signal);
+      return {
+        items: users,
+        stats: [{ title, detail: `${users.length} 人` }],
+        status: `${title}：j/k 选择  l 查看用户  h 返回  r 刷新`
+      };
+    });
+    return;
+  }
+  if (action === "browse-history") {
+    await openReadOnlyList(client, state, "浏览历史", "正在读取浏览历史...", render, signal, async () => {
+      const records = asArray(await client.getBrowseHistory(0, 20, false, signal));
+      return {
+        items: records.map((record) => historyItem(record)),
+        stats: [{ title: "浏览历史", detail: `${records.length} 条` }],
+        status: "浏览历史：j/k 选择  l 打开帖子  h 返回  r 刷新"
+      };
+    });
+    return;
+  }
+  if (action === "recent-topics") {
+    await openReadOnlyList(client, state, "我的最近主题", "正在读取最近主题...", render, signal, async () => {
+      const topics = asArray(await client.getRecentTopics(undefined, 0, 20, false, signal));
+      return {
+        items: topics.map((topic) => topicItem(topic)),
+        stats: [{ title: "最近主题", detail: `${topics.length} 条` }],
+        status: "最近主题：j/k 选择  l 打开帖子  h 返回  r 刷新"
+      };
+    });
+    return;
+  }
+  if (action === "random-topics") {
+    await openReadOnlyList(client, state, "随机主题", "正在读取随机主题...", render, signal, async () => {
+      const topics = asArray(await client.getRandomTopics(20, false, signal));
+      return {
+        items: topics.map((topic) => topicItem(topic)),
+        stats: [{ title: "随机主题", detail: `${topics.length} 条` }],
+        status: "随机主题：j/k 选择  l 打开帖子  h 返回  r 刷新"
+      };
+    });
+    return;
+  }
+  if (action === "card-stat") {
+    state.status = "正在读取全站统计...";
+    render();
+    try {
+      const stat = await client.getCardStat(false, signal);
+      state.infoTitle = "全站统计";
+      state.infoLines = jsonPreviewLines(stat);
+      state.modal = "info";
+    } catch (error) {
+      state.status = `全站统计读取失败: ${error instanceof Error ? error.message : String(error)}`;
+    }
+    render();
+    return;
+  }
+  if (action.startsWith("board-best:")) {
+    const boardId = asNumber(action.slice("board-best:".length));
+    if (boardId === undefined) return;
+    await openReadOnlyList(client, state, "精华帖", "正在读取精华帖...", render, signal, async () => {
+      const topics = asArray(await client.getBoardTopics(boardId, 0, 20, true, false, signal));
+      return {
+        items: topics.map((topic) => topicItem(topic)),
+        stats: [{ title: "精华帖", detail: `${topics.length} 条` }],
+        status: "精华帖：j/k 选择  l 打开帖子  h 返回"
+      };
+    });
+    return;
+  }
+  if (action.startsWith("rate-reasons:")) {
+    const type = Number(action.slice("rate-reasons:".length));
+    await openReadOnlyList(client, state, `评分原因 ${type}`, "正在读取评分原因...", render, signal, async () => {
+      const reasons = asArray(await client.getPostRateReasons(type, false, signal));
+      return {
+        items: reasons.map((reason) => genericItem(reason, "评分原因")),
+        stats: [{ title: "评分原因", detail: `${reasons.length} 条` }],
+        status: "评分原因：j/k 查看  h 返回"
+      };
+    });
+  }
+}
+
+async function openReadOnlyList(
+  client: CachedCc98Client,
+  state: TuiState,
+  title: string,
+  loadingStatus: string,
+  render: () => void,
+  signal: AbortSignal | undefined,
+  loadItems: () => Promise<{ items: ContentItem[]; stats: ContentItem[]; status: string }>
+): Promise<void> {
+  state.parentList = {
+    title: state.viewTitle,
+    items: state.items,
+    stats: state.stats,
+    itemIndex: state.itemIndex,
+    status: state.status
+  };
+  state.mode = "list";
+  state.focus = "content";
+  state.loading = true;
+  state.loadingMore = false;
+  state.error = undefined;
+  state.topic = undefined;
+  state.currentBoard = undefined;
+  state.currentChat = undefined;
+  state.viewTitle = title;
+  state.items = [];
+  state.stats = [];
+  state.itemIndex = 0;
+  state.scroll = 0;
+  state.status = loadingStatus;
+  render();
+
+  try {
+    const loaded = await loadItems();
+    state.items = loaded.items;
+    state.stats = loaded.stats;
+    state.status = loaded.status;
+  } catch (error) {
+    if (!isAbortError(error)) {
+      state.error = error instanceof Error ? error.message : String(error);
+      state.status = "读取失败；h 返回  r 重试";
+    }
+  } finally {
+    state.loading = false;
+    render();
+  }
+}
+
+async function openNoticeList(
+  client: CachedCc98Client,
+  state: TuiState,
+  type: NoticeType,
+  render: () => void,
+  signal?: AbortSignal
+): Promise<void> {
+  const title = type === "system" ? "系统通知" : type === "at" ? "@ 通知" : "回复通知";
+  await openReadOnlyList(client, state, title, `正在读取${title}...`, render, signal, async () => {
+    const notices = asArray(await client.getNotices(type, 0, 20, false, signal));
+    return {
+      items: notices.map((notice) => noticeItem(notice)),
+      stats: [{ title, detail: `${notices.length} 条` }],
+      status: `${title}：j/k 选择  l 打开关联帖子  h 返回  r 刷新`
+    };
+  });
+}
+
+async function performSearch(
+  client: CachedCc98Client,
+  state: TuiState,
+  render: () => void,
+  signal?: AbortSignal
+): Promise<void> {
+  const query = state.searchQuery.trim();
+  if (!query) return;
+
+  state.loading = true;
+  state.searchResults = [];
+  render();
+
+  try {
+    if (state.searchMode === "topics") {
+      const results = asArray(await client.searchTopics(query, 0, 20, false, signal));
+      state.searchResults = results.map((topic: any) => topicItem(topic));
+    } else {
+      const results = asArray(await client.searchUsers(query, false, signal));
+      state.searchResults = results.map((user) => userItem(user));
+    }
+    state.itemIndex = 0;
+    state.status = `找到 ${state.searchResults.length} 个结果`;
+  } catch (error) {
+    state.error = error instanceof Error ? error.message : String(error);
+  } finally {
+    state.loading = false;
+    render();
+  }
+}
+
+async function toggleFavorite(
+  client: CachedCc98Client,
+  state: TuiState,
+  render: () => void
+): Promise<void> {
+  if (!state.topic) return;
+
+  try {
+    const isFav = await client.isTopicFavorite(state.topic.topicId, false);
+    if (isFav) {
+      await client.removeFavorite(state.topic.topicId);
+      state.status = "已取消收藏";
+    } else {
+      await client.addFavorite(state.topic.topicId);
+      state.status = "已收藏";
+    }
+  } catch (error) {
+    state.status = `收藏失败: ${error instanceof Error ? error.message : String(error)}`;
+  }
+  render();
+}
+
+async function reactToCurrentPost(
+  client: CachedCc98Client,
+  state: TuiState,
+  isLike: boolean,
+  render: () => void
+): Promise<void> {
+  if (!state.topic || state.topic.posts.length === 0) return;
+
+  const currentPost = currentTopicPost(state.topic, state.scroll);
+  if (!currentPost?.id) {
+    state.status = "无法找到当前帖子";
+    render();
+    return;
+  }
+
+  try {
+    await client.reactToPost(currentPost.id, isLike);
+    state.status = isLike ? "已点赞" : "已踩";
+  } catch (error) {
+    state.status = `操作失败: ${error instanceof Error ? error.message : String(error)}`;
+  }
+  render();
+}
+
+async function showUserDetail(
+  client: CachedCc98Client,
+  state: TuiState,
+  render: () => void,
+  signal?: AbortSignal
+): Promise<void> {
+  if (!state.topic || state.topic.posts.length === 0) return;
+
+  const currentPost = currentTopicPost(state.topic, state.scroll);
+  if (!currentPost) return;
+
+  const userId = currentPost.userId;
+  if (!userId) {
+    state.status = "无法获取用户信息";
+    render();
+    return;
+  }
+
+  await showUserDetailById(client, state, userId, render, signal);
+}
+
+async function showUserDetailById(
+  client: CachedCc98Client,
+  state: TuiState,
+  userId: number,
+  render: () => void,
+  signal?: AbortSignal
+): Promise<void> {
+  if (!userId) {
+    state.status = "无法获取用户信息";
+    render();
+    return;
+  }
+
+  state.loading = true;
+  render();
+
+  try {
+    const profile = asObject(await client.getUserProfile(userId, false, signal));
+    state.userDetail = {
+      userId,
+      name: String(profile.name ?? "未知用户"),
+      level: String(profile.levelTitle ?? profile.groupName ?? ""),
+      postCount: asNumber(profile.postCount),
+      fanCount: asNumber(profile.fanCount),
+      followCount: asNumber(profile.followCount),
+      isFollowing: Boolean(profile.isFollowing)
+    };
+
+    // 获取最近帖子
+    const topics = asArray(await client.getRecentTopics(userId, 0, 5, false, signal));
+    state.userDetail.recentTopics = topics.map((t: any) => topicItem(t));
+
+    state.modal = "user";
+    state.status = "用户详情";
+  } catch (error) {
+    state.status = `获取用户信息失败: ${error instanceof Error ? error.message : String(error)}`;
+  } finally {
+    state.loading = false;
+    render();
+  }
+}
+
+async function showTopicVote(
+  client: CachedCc98Client,
+  state: TuiState,
+  render: () => void,
+  signal?: AbortSignal
+): Promise<void> {
+  if (!state.topic) return;
+
+  state.status = "正在读取投票信息...";
+  render();
+  try {
+    const vote = await client.getTopicVote(state.topic.topicId, false, signal);
+    state.infoTitle = "投票信息";
+    state.infoLines = jsonPreviewLines(vote);
+    state.modal = "info";
+  } catch (error) {
+    state.status = `投票读取失败: ${error instanceof Error ? error.message : String(error)}`;
+  }
+  render();
+}
+
+async function showPostReactionState(
+  client: CachedCc98Client,
+  state: TuiState,
+  render: () => void,
+  signal?: AbortSignal
+): Promise<void> {
+  if (!state.topic) return;
+  const currentPost = currentTopicPost(state.topic, state.scroll);
+  if (!currentPost?.id) {
+    state.status = "无法找到当前帖子";
+    render();
+    return;
+  }
+
+  state.status = "正在读取点赞状态...";
+  render();
+  try {
+    const reaction = await client.getPostReactionState(currentPost.id, false, signal);
+    state.infoTitle = `#${currentPost.floor ?? "?"} 点赞状态`;
+    state.infoLines = jsonPreviewLines(reaction);
+    state.modal = "info";
+  } catch (error) {
+    state.status = `点赞状态读取失败: ${error instanceof Error ? error.message : String(error)}`;
+  }
+  render();
+}
+
+function jsonPreviewLines(value: unknown): string[] {
+  const text = typeof value === "string" ? value : JSON.stringify(value, null, 2);
+  return text.split("\n").slice(0, 18);
+}
+
+async function toggleFollow(
+  client: CachedCc98Client,
+  state: TuiState,
+  render: () => void
+): Promise<void> {
+  if (!state.userDetail) return;
+
+  try {
+    if (state.userDetail.isFollowing) {
+      await client.unfollowUser(state.userDetail.userId);
+      state.userDetail.isFollowing = false;
+      state.status = "已取消关注";
+    } else {
+      await client.followUser(state.userDetail.userId);
+      state.userDetail.isFollowing = true;
+      state.status = "已关注";
+    }
+  } catch (error) {
+    state.status = `关注失败: ${error instanceof Error ? error.message : String(error)}`;
+  }
+  render();
+}
+
+async function sendPrivateMessage(
+  client: CachedCc98Client,
+  state: TuiState,
+  userId: number,
+  content: string,
+  render: () => void
+): Promise<void> {
+  try {
+    await client.sendMessage(userId, content);
+    state.status = "消息已发送";
+  } catch (error) {
+    state.status = `发送失败: ${error instanceof Error ? error.message : String(error)}`;
+  }
+  render();
+}
+
+async function signin(
+  client: CachedCc98Client,
+  state: TuiState,
+  render: () => void
+): Promise<void> {
+  try {
+    const result = await client.signin();
+    const wealth = typeof result === "number" ? result : 0;
+    state.status = wealth > 0 ? `签到成功，获得 ${wealth} 米` : "签到成功";
+  } catch (error) {
+    state.status = `签到失败: ${error instanceof Error ? error.message : String(error)}`;
+  }
+  render();
+}
+
+// 搜索模态框
+function drawSearchModal(baseLines: string[], state: TuiState, width: number, height: number): string {
+  const modalWidth = Math.min(60, width - 4);
+  const modalHeight = Math.min(20, height - 4);
+  const startRow = Math.floor((height - modalHeight) / 2);
+  const startCol = Math.floor((width - modalWidth) / 2);
+
+  const resultCount = state.searchResults.length;
+  const resultLabel = resultCount > 0 ? ` (${resultCount} 结果)` : "";
+
+  const content: string[] = [
+    "",
+    `${cc98Blue}${ansi.bold} 搜索${ansi.reset}`,
+    "",
+    ` 模式: ${state.searchMode === "topics" ? "● 帖子  ○ 用户" : "○ 帖子  ● 用户"}  Tab 切换`,
+    "",
+    ` ${cc98Blue}▸${ansi.reset} ${state.searchQuery}${state.loading ? " ..." : "_"}${resultLabel}`,
+    "",
+  ];
+
+  const maxResults = modalHeight - 10;
+  for (let i = 0; i < Math.min(state.searchResults.length, maxResults); i++) {
+    const item = state.searchResults[i];
+    const marker = i === state.itemIndex ? ">" : " ";
+    content.push(` ${marker} ${i + 1}. ${item.title}`);
+    if (item.meta) {
+      content.push(`    ${muted}${item.meta}${ansi.reset}`);
+    }
+  }
+
+  if (state.searchResults.length === 0 && state.searchQuery && !state.loading) {
+    content.push(` ${muted}无结果${ansi.reset}`);
+  }
+
+  content.push("");
+  content.push(` ${muted}Enter 搜索/打开  j/k 选择  Esc 关闭  Tab 切换${ansi.reset}`);
+
+  const result = [...baseLines];
+  for (let i = 0; i < modalHeight && i < content.length; i++) {
+    const row = startRow + i;
+    if (row >= 0 && row < result.length) {
+      const line = content[i] ?? "";
+      const padded = fit(line, modalWidth);
+      const bgStr = i === 0 || i === modalHeight - 1
+        ? `${line}${"─".repeat(modalWidth)}${ansi.reset}`
+        : `${bg(5, 46, 74)}${padded}${ansi.reset}`;
+      const before = result[row].slice(0, startCol);
+      const after = " ".repeat(Math.max(0, width - startCol - modalWidth));
+      result[row] = `${before}${bgStr}${after}`;
+    }
+  }
+
+  return result.slice(0, height).join("\n");
+}
+
+// 用户详情模态框
+function drawUserDetailModal(baseLines: string[], state: TuiState, width: number, height: number): string {
+  const modalWidth = Math.min(50, width - 4);
+  const modalHeight = Math.min(18, height - 4);
+  const startRow = Math.floor((height - modalHeight) / 2);
+  const startCol = Math.floor((width - modalWidth) / 2);
+
+  const user = state.userDetail;
+  if (!user) {
+    return baseLines.slice(0, height).join("\n");
+  }
+
+  const followLabel = user.isFollowing ? "已关注" : "未关注";
+  const content: string[] = [
+    "",
+    `${cc98Blue}${ansi.bold} 用户详情${ansi.reset}`,
+    "",
+    ` 昵称: ${user.name}`,
+    ` ID: #${user.userId}`,
+  ];
+
+  if (user.level) content.push(` 等级: ${user.level}`);
+  if (user.postCount !== undefined) content.push(` 帖子: ${user.postCount}`);
+  if (user.fanCount !== undefined) content.push(` 粉丝: ${user.fanCount}  关注: ${user.followCount ?? 0}`);
+  content.push(` 状态: ${followLabel}`);
+  content.push("");
+  content.push(` ${cc98Blue}▸${ansi.reset} f 关注/取消关注  m 发私信`);
+  content.push("");
+
+  if (user.recentTopics && user.recentTopics.length > 0) {
+    content.push(` ${cc98Blue}最近帖子${ansi.reset}`);
+    for (const topic of user.recentTopics.slice(0, 3)) {
+      content.push(` • ${topic.title}`);
+    }
+  }
+
+  content.push("");
+  content.push(` ${muted}Esc 关闭${ansi.reset}`);
+
+  const result = [...baseLines];
+  for (let i = 0; i < modalHeight && i < content.length; i++) {
+    const row = startRow + i;
+    if (row >= 0 && row < result.length) {
+      const line = content[i] ?? "";
+      const padded = fit(line, modalWidth);
+      const bgStr = i === 0 || i === modalHeight - 1
+        ? `${line}${"─".repeat(modalWidth)}${ansi.reset}`
+        : `${bg(5, 46, 74)}${padded}${ansi.reset}`;
+      const before = result[row].slice(0, startCol);
+      const after = " ".repeat(Math.max(0, width - startCol - modalWidth));
+      result[row] = `${before}${bgStr}${after}`;
+    }
+  }
+
+  return result.slice(0, height).join("\n");
 }

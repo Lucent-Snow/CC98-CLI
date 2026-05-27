@@ -70,20 +70,20 @@ export class Cc98Client {
     return this.request<unknown>(endpoints.forum.allBoards, { signal: options.signal });
   }
 
-  async getCardStat(): Promise<unknown> {
-    return this.request<unknown>(endpoints.forum.cardStat);
+  async getCardStat(options: RequestOptions = {}): Promise<unknown> {
+    return this.request<unknown>(endpoints.forum.cardStat, { signal: options.signal });
   }
 
-  async getUserProfile(userId: number): Promise<unknown> {
-    return this.request<unknown>(endpoints.user.profile(userId));
+  async getUserProfile(userId: number, options: RequestOptions = {}): Promise<unknown> {
+    return this.request<unknown>(endpoints.user.profile(userId), { signal: options.signal });
   }
 
   async getBasicUsers(ids: number[], options: RequestOptions = {}): Promise<unknown> {
     return this.request<unknown>(endpoints.user.basic(ids), { signal: options.signal });
   }
 
-  async getUsers(ids: number[]): Promise<unknown> {
-    return this.request<unknown>(endpoints.user.list(ids));
+  async getUsers(ids: number[], options: RequestOptions = {}): Promise<unknown> {
+    return this.request<unknown>(endpoints.user.list(ids), { signal: options.signal });
   }
 
   async getFriendIds(type: "follower" | "followee", from = 0, size = 10, options: RequestOptions = {}): Promise<unknown> {
@@ -98,8 +98,8 @@ export class Cc98Client {
     return this.request<unknown>(endpoints.user.favoriteUpdates(from, size), { signal: options.signal });
   }
 
-  async getFavoriteGroups(): Promise<unknown> {
-    return this.request<unknown>(endpoints.user.favoriteGroups);
+  async getFavoriteGroups(options: RequestOptions = {}): Promise<unknown> {
+    return this.request<unknown>(endpoints.user.favoriteGroups, { signal: options.signal });
   }
 
   async getRecentChats(from = 0, size = 10, options: RequestOptions = {}): Promise<unknown> {
@@ -110,20 +110,20 @@ export class Cc98Client {
     return this.request<unknown>(endpoints.user.chatHistory(userId, from, size), { signal: options.signal });
   }
 
-  async searchUsers(name: string): Promise<unknown> {
-    return this.request<unknown>(endpoints.user.search(name));
+  async searchUsers(name: string, options: RequestOptions = {}): Promise<unknown> {
+    return this.request<unknown>(endpoints.user.search(name), { signal: options.signal });
   }
 
   async getUnreadCount(options: RequestOptions = {}): Promise<unknown> {
     return this.request<unknown>(endpoints.user.unread, { signal: options.signal });
   }
 
-  async getNotices(type: "system" | "at" | "reply", from = 0, size = 10): Promise<unknown> {
-    return this.request<unknown>(endpoints.user.notices(type, from, size));
+  async getNotices(type: "system" | "at" | "reply", from = 0, size = 10, options: RequestOptions = {}): Promise<unknown> {
+    return this.request<unknown>(endpoints.user.notices(type, from, size), { signal: options.signal });
   }
 
-  async getBrowseHistory(from = 0, size = 11): Promise<unknown> {
-    return this.request<unknown>(endpoints.user.browseHistory(from, size));
+  async getBrowseHistory(from = 0, size = 11, options: RequestOptions = {}): Promise<unknown> {
+    return this.request<unknown>(endpoints.user.browseHistory(from, size), { signal: options.signal });
   }
 
   async getTopic(topicId: number, options: RequestOptions = {}): Promise<JsonObject> {
@@ -134,32 +134,32 @@ export class Cc98Client {
     return this.request<JsonObject[]>(endpoints.topic.posts(topicId, from, size), { signal: options.signal });
   }
 
-  async isTopicFavorite(topicId: number): Promise<unknown> {
-    return this.request<unknown>(endpoints.topic.isFavorite(topicId));
+  async isTopicFavorite(topicId: number, options: RequestOptions = {}): Promise<unknown> {
+    return this.request<unknown>(endpoints.topic.isFavorite(topicId), { signal: options.signal });
   }
 
   async getNewTopics(from = 0, size = 20, options: RequestOptions = {}): Promise<unknown> {
     return this.request<unknown>(endpoints.topic.newTopics(from, size), { signal: options.signal });
   }
 
-  async getRandomTopics(size = 10): Promise<unknown> {
-    return this.request<unknown>(endpoints.topic.randomTopics(size));
+  async getRandomTopics(size = 10, options: RequestOptions = {}): Promise<unknown> {
+    return this.request<unknown>(endpoints.topic.randomTopics(size), { signal: options.signal });
   }
 
-  async getFavoriteTopics(from = 0, size = 11, order = 1, groupId = 0): Promise<unknown> {
-    return this.request<unknown>(endpoints.topic.favoriteTopics(from, size, order, groupId));
+  async getFavoriteTopics(from = 0, size = 11, order = 1, groupId = 0, options: RequestOptions = {}): Promise<unknown> {
+    return this.request<unknown>(endpoints.topic.favoriteTopics(from, size, order, groupId), { signal: options.signal });
   }
 
-  async getTopicVote(topicId: number): Promise<unknown> {
-    return this.request<unknown>(endpoints.topic.vote(topicId));
+  async getTopicVote(topicId: number, options: RequestOptions = {}): Promise<unknown> {
+    return this.request<unknown>(endpoints.topic.vote(topicId), { signal: options.signal });
   }
 
   async getBasicTopics(ids: number[]): Promise<unknown> {
     return this.request<unknown>(endpoints.topic.basic(ids));
   }
 
-  async getRecentTopics(userId: number | undefined, from = 0, size = 11): Promise<unknown> {
-    return this.request<unknown>(endpoints.topic.recent(userId, from, size));
+  async getRecentTopics(userId: number | undefined, from = 0, size = 11, options: RequestOptions = {}): Promise<unknown> {
+    return this.request<unknown>(endpoints.topic.recent(userId, from, size), { signal: options.signal });
   }
 
   async getBoardInfo(boardId: number, options: RequestOptions = {}): Promise<unknown> {
@@ -173,16 +173,94 @@ export class Cc98Client {
     return this.request<unknown>(endpoint, { signal: options.signal });
   }
 
-  async searchTopics(keyword: string, from = 0, size = 20): Promise<unknown> {
-    return this.request<unknown>(endpoints.topic.search(keyword, from, size));
+  async searchTopics(keyword: string, from = 0, size = 20, options: RequestOptions = {}): Promise<unknown> {
+    return this.request<unknown>(endpoints.topic.search(keyword, from, size), { signal: options.signal });
   }
 
-  async getPostReactionState(postId: number): Promise<unknown> {
-    return this.request<unknown>(endpoints.post.reactionState(postId));
+  async getPostReactionState(postId: number, options: RequestOptions = {}): Promise<unknown> {
+    return this.request<unknown>(endpoints.post.reactionState(postId), { signal: options.signal });
   }
 
-  async getPostRateReasons(type: number): Promise<unknown> {
-    return this.request<unknown>(endpoints.post.rateReasons(type));
+  async getPostRateReasons(type: number, options: RequestOptions = {}): Promise<unknown> {
+    return this.request<unknown>(endpoints.post.rateReasons(type), { signal: options.signal });
+  }
+
+  // 写入操作
+
+  async createTopic(boardId: number, title: string, content: string, contentType = 0): Promise<unknown> {
+    return this.request<unknown>(endpoints.write.createTopic(boardId), {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ title, content, contentType })
+    });
+  }
+
+  async replyTopic(topicId: number, content: string, contentType = 0): Promise<unknown> {
+    return this.request<unknown>(endpoints.write.replyTopic(topicId), {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ content, contentType })
+    });
+  }
+
+  async addFavorite(topicId: number, groupId = 0): Promise<unknown> {
+    return this.request<unknown>(endpoints.write.addFavorite(topicId, groupId), {
+      method: "PUT"
+    });
+  }
+
+  async removeFavorite(topicId: number): Promise<unknown> {
+    return this.request<unknown>(endpoints.write.removeFavorite(topicId), {
+      method: "DELETE"
+    });
+  }
+
+  async addBoardFavorite(boardId: number): Promise<unknown> {
+    return this.request<unknown>(endpoints.write.addBoardFavorite(boardId), {
+      method: "PUT"
+    });
+  }
+
+  async removeBoardFavorite(boardId: number): Promise<unknown> {
+    return this.request<unknown>(endpoints.write.removeBoardFavorite(boardId), {
+      method: "DELETE"
+    });
+  }
+
+  async followUser(userId: number): Promise<unknown> {
+    return this.request<unknown>(endpoints.write.followUser(userId), {
+      method: "PUT"
+    });
+  }
+
+  async unfollowUser(userId: number): Promise<unknown> {
+    return this.request<unknown>(endpoints.write.unfollowUser(userId), {
+      method: "DELETE"
+    });
+  }
+
+  async sendMessage(userId: number, content: string): Promise<unknown> {
+    return this.request<unknown>(endpoints.write.sendMessage, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ receiverId: userId, content })
+    });
+  }
+
+  async signin(): Promise<unknown> {
+    return this.request<unknown>(endpoints.write.signin, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify("")
+    });
+  }
+
+  async reactToPost(postId: number, isLike: boolean): Promise<unknown> {
+    return this.request<unknown>(endpoints.post.react(postId), {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(isLike ? "like" : "dislike")
+    });
   }
 
   private async request<T>(url: string, init: RequestInit = {}, authorize = true): Promise<T> {

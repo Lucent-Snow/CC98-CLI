@@ -57,6 +57,26 @@ export const endpoints = {
   },
   post: {
     reactionState: (postId: number) => `${base}/post/${postId}/like`,
-    rateReasons: (type: number) => `${base}/post/rating-reason?type=${type}`
+    rateReasons: (type: number) => `${base}/post/rating-reason?type=${type}`,
+    react: (postId: number) => `${base}/post/${postId}/like`,
+    edit: (postId: number) => `${base}/post/${postId}`
+  },
+  write: {
+    // 帖子
+    createTopic: (boardId: number) => `${base}/board/${boardId}/topic`,
+    replyTopic: (topicId: number) => `${base}/topic/${topicId}/post`,
+    // 收藏
+    addFavorite: (topicId: number, groupId = 0) => `${base}/me/favorite/${topicId}?groupid=${groupId}`,
+    removeFavorite: (topicId: number) => `${base}/me/favorite/${topicId}`,
+    // 版面收藏
+    addBoardFavorite: (boardId: number) => `${base}/me/custom-board/${boardId}`,
+    removeBoardFavorite: (boardId: number) => `${base}/me/custom-board/${boardId}`,
+    // 关注
+    followUser: (userId: number) => `${base}/me/followee/${userId}`,
+    unfollowUser: (userId: number) => `${base}/me/followee/${userId}`,
+    // 私信
+    sendMessage: `${base}/message`,
+    // 签到
+    signin: `${base}/me/signin`
   }
 } as const;

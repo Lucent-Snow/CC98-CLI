@@ -73,14 +73,21 @@ Usage:
   cc98 account use <name>   Set current account
   cc98 logout               Remove saved tokens
   cc98 me                   Show current user profile
+  cc98 me signin            Sign in daily
   cc98 forum index          Read forum index config
   cc98 forum boards         Read all boards
   cc98 board <board-id>     List topics in a board
+  cc98 board favorite add|remove <board-id>
   cc98 topic <topic-id>     Read a topic
+  cc98 topic create <board-id> <title> <content>
+  cc98 topic reply <topic-id> <content>
+  cc98 topic favorite add|remove <topic-id>
   cc98 user profile <id>    Read user profile
+  cc98 user follow|unfollow <id>
   cc98 message unread       Read unread counts
+  cc98 message send <user-id> <content>
   cc98 notice system        Read system notices
-  cc98 post rate-reasons 0  Read post rating reasons
+  cc98 post like|dislike <post-id>
   cc98 search <keyword>     Search topics
   cc98 cache stats          Show cache statistics
   cc98 cache cleanup        Remove expired cache entries

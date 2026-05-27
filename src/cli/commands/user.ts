@@ -67,6 +67,16 @@ export async function userCommand(args: string[]): Promise<void> {
       printJson(await client.getBrowseHistory(page.from, page.size));
       return;
     }
+    case "follow": {
+      const userId = parsePositiveInteger(rest[0], "user-id");
+      printJson(await client.followUser(userId));
+      return;
+    }
+    case "unfollow": {
+      const userId = parsePositiveInteger(rest[0], "user-id");
+      printJson(await client.unfollowUser(userId));
+      return;
+    }
     default:
       throw new Error(`unknown user command: ${subcommand}`);
   }
@@ -88,5 +98,7 @@ Usage:
   cc98 user search <name>
   cc98 user unread
   cc98 user browse-history [--from n] [--size n]
+  cc98 user follow <user-id>
+  cc98 user unfollow <user-id>
 `);
 }

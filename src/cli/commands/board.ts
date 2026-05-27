@@ -35,6 +35,18 @@ export async function boardCommand(args: string[]): Promise<void> {
       printJson(await client.getBoardTopics(boardId, page.from, page.size, best));
       return;
     }
+    case "favorite": {
+      const action = rest[0];
+      const boardId = parsePositiveInteger(rest[1], "board-id");
+      if (action === "add") {
+        printJson(await client.addBoardFavorite(boardId));
+      } else if (action === "remove") {
+        printJson(await client.removeBoardFavorite(boardId));
+      } else {
+        throw new Error("usage: cc98 board favorite add|remove <board-id>");
+      }
+      return;
+    }
     default:
       throw new Error(`unknown board command: ${subcommandOrId}`);
   }
@@ -63,5 +75,6 @@ Usage:
   cc98 board list
   cc98 board info <board-id>
   cc98 board topics <board-id> [--from n] [--size n] [--best]
+  cc98 board favorite add|remove <board-id>
 `);
 }
