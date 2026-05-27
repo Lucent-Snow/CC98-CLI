@@ -55,18 +55,24 @@ export class Content implements Component {
     rows.push(`${cc98Blue}${ansi.bold} ${state.viewTitle}${ansi.reset}`);
     rows.push(`${line}${"─".repeat(Math.max(0, width - 1))}${ansi.reset}`);
 
-    const visibleCapacity = Math.max(1, Math.floor(Math.max(1, height - 3) / 3));
+    // 每项占2行（标题 + meta），计算可见容量
+    const headerRows = 2; // 标题 + 分隔线
+    const rowsPerItem = 2; // 标题行 + meta 行
+    const footerRows = 1; // 底部信息
+    const visibleCapacity = Math.max(1, Math.floor((height - headerRows - footerRows) / rowsPerItem));
+    
+    // 滚动逻辑：确保选中项可见
     if (state.itemIndex < state.scroll) {
       state.scroll = state.itemIndex;
     } else if (state.itemIndex >= state.scroll + visibleCapacity) {
       state.scroll = state.itemIndex - visibleCapacity + 1;
     }
-    const visible = state.items.slice(state.scroll);
-    visible.forEach((itemValue, offset) => {
-      if (rows.length >= height) {
-        return;
-      }
-      const index = state.scroll + offset;
+    
+    // 渲染可见项
+    const visible = state.items.slice(state.scroll, state.scroll + visibleCapacity);
+    for (let i = 0; i < visible.length; i++) {
+      const itemValue = visible[i];
+      const index = state.scroll + i;
       const active = index === state.itemIndex && (state.focus === "content" || state.mode === "settings");
       const prefix = active ? `${ok}●${ansi.reset}` : `${muted}•${ansi.reset}`;
       const title = fit(` ${itemValue.title}`, Math.max(10, width - 2));
@@ -75,14 +81,16 @@ export class Content implements Component {
       if (itemValue.meta && rows.length < height) {
         rows.push(fit(`  ${muted}${itemValue.meta}${ansi.reset}`, width));
       }
-    });
+    }
 
     if (visible.length === 0) {
       rows.push(`${muted} 暂无数据${ansi.reset}`);
     }
 
-    if (state.scroll + visibleCapacity < state.items.length && rows.length < height) {
-      rows.push(fit(`${muted}  ↓ 还有 ${state.items.length - state.scroll - visibleCapacity} 项${ansi.reset}`, width));
+    // 底部滚动指示器
+    const remaining = state.items.length - state.scroll - visibleCapacity;
+    if (remaining > 0 && rows.length < height) {
+      rows.push(fit(`${muted}  ↓ 还有 ${remaining} 项${ansi.reset}`, width));
     }
 
     return rows.concat(blank(height - rows.length, width)).slice(0, height);

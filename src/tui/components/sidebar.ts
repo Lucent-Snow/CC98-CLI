@@ -28,7 +28,19 @@ export class Sidebar implements Component {
 
   render(state: TuiState, width: number, height: number): string[] {
     const rows: string[] = [];
-    for (let index = 0; index < height; index += 1) {
+    
+    // 计算滚动窗口：确保选中项可见
+    const total = navItems.length;
+    let offset = 0;
+    if (total > height) {
+      // 选中项在窗口中间偏上
+      offset = Math.max(0, state.navIndex - Math.floor(height / 3));
+      // 不超过最大偏移
+      offset = Math.min(offset, total - height);
+    }
+    
+    for (let row = 0; row < height; row += 1) {
+      const index = offset + row;
       const nav = navItems[index];
       if (!nav) {
         rows.push(" ".repeat(width));
