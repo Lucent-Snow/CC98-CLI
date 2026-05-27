@@ -1,0 +1,191 @@
+import { renderUbbToLines } from "./ubb-renderer.js";
+import type { TopicLineEntry, TopicPostEntry, TopicReaderState } from "./state/types.js";
+import { asArray, asNumber, asObject, normalizeInline } from "./helpers.js";
+
+const topicWidth = 72;
+
+export function buildTopicReader(topicId: number, topic: Record<string, unknown>, posts: unknown[], size: number): TopicReaderState {
+  const title = String(topic.title ?? `主题 #${topicId}`);
+  const replyCount = asNumber(topic.replyCount);
+  const hitCount = asNumber(topic.hitCount);
+  const boardName = String(topic.boardName ?? "");
+  const meta = [
+    boardName || undefined,
+    replyCount !== undefined ? `${replyCount} 回复` : undefined,
+    hitCount !== undefined ? `${hitCount} 浏览` : undefined
+  ].filter(Boolean).join(" · ");
+  const rendered = renderPosts(posts, 0);
+
+  return {
+    topicId,
+    title,
+    meta,
+    lines: rendered.lines,
+    posts: rendered.posts,
+    loaded: posts.length,
+    size,
+    hasMore: posts.length >= size,
+    imageCount: rendered.imageCount,
+    linkCount: rendered.linkCount,
+    floorInput: ""
+  };
+}
+
+export function appendTopicPosts(topic: TopicReaderState, posts: unknown[]): void {
+  const rendered = renderPosts(posts, topic.lines.length);
+  topic.lines.push(...rendered.lines);
+  topic.posts.push(...rendered.posts);
+  topic.loaded += posts.length;
+  topic.hasMore = posts.length >= topic.size;
+  topic.imageCount += rendered.imageCount;
+  topic.linkCount += rendered.linkCount;
+}
+
+export function currentTopicPost(topic: TopicReaderState, scroll: number): TopicPostEntry | undefined {
+  return topic.posts.find((post) => scroll >= post.lineStart && scroll <= post.lineEnd);
+}
+
+export function currentTopicLine(topic: TopicReaderState, scroll: number): TopicLineEntry | undefined {
+  for (const post of topic.posts) {
+    const line = post.lines.find((entry) => entry.line === scroll);
+    if (line) {
+      return line;
+    }
+  }
+  return undefined;
+}
+
+export function findTopicPostByFloor(topic: TopicReaderState, floor: number): TopicPostEntry | undefined {
+  return topic.posts.find((post) => post.floor === floor);
+}
+
+export function jumpRelativeTopicFloor(topic: TopicReaderState, scroll: number, delta: number): number {
+  const current = currentTopicPost(topic, scroll);
+  if (!current) {
+    return scroll;
+  }
+  const next = findTopicPostByFloor(topic, (current.floor ?? 1) + delta);
+  return next?.lineStart ?? scroll;
+}
+
+export function lineKindLabel(kind: TopicLineEntry["kind"]): string {
+  switch (kind) {
+    case "header":
+      return "楼层";
+    case "divider":
+      return "分隔";
+    case "quote":
+      return "引用";
+    case "image":
+      return "图片";
+    case "link":
+      return "链接";
+    case "blank":
+      return "空行";
+    case "text":
+      return "正文";
+  }
+}
+
+export function parseBracketIndex(value: string, label: "image" | "link"): number | undefined {
+  const match = value.match(new RegExp(`^\\[${label} (\\d+)\\]`));
+  return match ? Number(match[1]) : undefined;
+}
+
+function renderPosts(posts: unknown[], lineOffset: number): {
+  lines: string[];
+  posts: TopicPostEntry[];
+  imageCount: number;
+  linkCount: number;
+} {
+  const lines: string[] = [];
+  const entries: TopicPostEntry[] = [];
+  let imageCount = 0;
+  let linkCount = 0;
+
+  for (const post of posts) {
+    const obj = asObject(post);
+    const floor = asNumber(obj.floor) ?? entries.length + 1;
+    const author = String(obj.userName ?? asObject(obj.user).name ?? "匿名");
+    const time = typeof obj.time === "string" ? obj.time.replace("T", " ").slice(0, 16) : "";
+    const content = String(obj.content ?? "");
+    const rendered = renderUbbToLines(content, topicWidth);
+    const postLines: TopicLineEntry[] = [];
+    const start = lineOffset + lines.length;
+    const header = `#${floor} ${author}${time ? ` · ${time}` : ""}`;
+
+    lines.push(header);
+    postLines.push({ line: lineOffset + lines.length - 1, row: 0, floor, kind: "header", text: header });
+    lines.push("─".repeat(20));
+    postLines.push({ line: lineOffset + lines.length - 1, row: 1, floor, kind: "divider", text: "" });
+
+    for (const renderedLine of rendered.lines) {
+      const kind = classifyLine(renderedLine);
+      const imageIndex = kind === "image" ? parseBracketIndex(renderedLine, "image") : undefined;
+      const linkIndex = kind === "link" ? parseBracketIndex(renderedLine, "link") : undefined;
+      lines.push(renderedLine);
+      postLines.push({
+        line: lineOffset + lines.length - 1,
+        row: postLines.length,
+        floor,
+        kind,
+        text: renderedLine,
+        imageIndex,
+        imageUrl: imageIndex !== undefined ? rendered.images[imageIndex - 1] : undefined,
+        linkIndex,
+        linkUrl: linkIndex !== undefined ? rendered.links[linkIndex - 1] : undefined
+      });
+    }
+
+    lines.push("");
+    postLines.push({ line: lineOffset + lines.length - 1, row: postLines.length, floor, kind: "blank", text: "" });
+    imageCount += rendered.images.length;
+    linkCount += rendered.links.length;
+
+    entries.push({
+      id: asNumber(obj.id),
+      userId: asNumber(obj.userId),
+      floor,
+      author,
+      time,
+      likeCount: asNumber(obj.likeCount) ?? 0,
+      dislikeCount: asNumber(obj.dislikeCount) ?? 0,
+      rating: formatRating(obj),
+      preview: normalizeInline(rendered.lines.join(" ")).slice(0, 80),
+      lineStart: start,
+      lineEnd: lineOffset + lines.length - 1,
+      imageCount: rendered.images.length,
+      linkCount: rendered.links.length,
+      images: rendered.images,
+      links: rendered.links,
+      lines: postLines
+    });
+  }
+
+  return { lines, posts: entries, imageCount, linkCount };
+}
+
+function classifyLine(line: string): TopicLineEntry["kind"] {
+  if (line.startsWith("[image ")) {
+    return "image";
+  }
+  if (line.startsWith("[link ")) {
+    return "link";
+  }
+  if (line.startsWith("│ ")) {
+    return "quote";
+  }
+  if (line.trim() === "") {
+    return "blank";
+  }
+  return "text";
+}
+
+function formatRating(post: Record<string, unknown>): string | undefined {
+  const ratings = asArray(post.ratings);
+  if (ratings.length > 0) {
+    return `${ratings.length} 条评分`;
+  }
+  const rating = asNumber(post.rating);
+  return rating !== undefined && rating !== 0 ? String(rating) : undefined;
+}
