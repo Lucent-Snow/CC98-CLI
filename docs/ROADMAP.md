@@ -84,7 +84,7 @@
 - [x] WebVPN 支持（非校园网访问）
 - [x] WebVPN 自动检测和启用
 - [x] WebVPN 配置选项 (`cc98 vpn mode`)
-- [x] WebVPN 凭据存储
+- [x] WebVPN 会话存储
 - [x] TUI 启动时网络检测
 
 ### 按键设计

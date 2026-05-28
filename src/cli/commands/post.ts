@@ -5,7 +5,7 @@ import { parseInteger, parsePositiveInteger, printJson } from "../parse.js";
 export async function postCommand(args: string[]): Promise<void> {
   const accountOption = extractAccountOption(args);
   const [subcommand, ...rest] = accountOption.args;
-  const { client } = createCliContext({ account: accountOption.account });
+  const { client } = await createCliContext({ account: accountOption.account });
 
   switch (subcommand) {
     case undefined:

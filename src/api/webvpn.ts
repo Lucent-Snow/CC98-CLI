@@ -1,4 +1,4 @@
-import { createCipheriv, createDecipheriv } from "node:crypto";
+import { createCipheriv } from "node:crypto";
 
 // WebVPN 配置
 const WEBVPN_BASE = "https://webvpn.zju.edu.cn";
@@ -6,9 +6,7 @@ const MIRROR_URL = "https://mirrors.zju.edu.cn/api/is_campus_network";
 
 // 加密密钥（来自 CC98-Desktop）
 const URL_KEY = "wrdvpnisthebest!";  // 用于 URL 转换
-const URL_IV = URL_KEY;               // IV 与 Key 相同
 const PWD_KEY = "wrdvpnisawesome!";   // 用于密码加密
-const PWD_IV = PWD_KEY;
 
 export interface WebVpnLoginResult {
   success: boolean;
@@ -29,6 +27,12 @@ export class WebVpnService {
   private _loggedIn = false;
   private _enabled = false;
 
+  constructor(cookies?: Record<string, string>) {
+    if (cookies) {
+      this.loadCookies(cookies);
+    }
+  }
+
   get isLoggedIn(): boolean {
     return this._loggedIn;
   }
@@ -41,13 +45,29 @@ export class WebVpnService {
     this._enabled = value;
   }
 
+  loadCookies(cookies: Record<string, string>): void {
+    this.cookies.clear();
+    for (const [name, value] of Object.entries(cookies)) {
+      if (name && value) {
+        this.cookies.set(name, value);
+      }
+    }
+    this._loggedIn = this.cookies.size > 0;
+  }
+
+  getCookies(): Record<string, string> {
+    return Object.fromEntries(this.cookies.entries());
+  }
+
   /**
    * 检查是否在校园网内
    */
   async checkNetwork(): Promise<boolean> {
     try {
       const response = await fetch(MIRROR_URL, {
-        headers: this.getHeaders(),
+        headers: {
+          "User-Agent": this.userAgent,
+        },
       });
       const text = await response.text();
       return text === "1" || text === "2";
@@ -147,6 +167,9 @@ export class WebVpnService {
    */
   convertUrl(url: string): string {
     const uri = new URL(url);
+    if (uri.origin === WEBVPN_BASE) {
+      return url;
+    }
     const scheme = uri.protocol.slice(0, -1); // "https:" → "https"
     const host = uri.hostname;
     const port = uri.port ? parseInt(uri.port) : 0;
@@ -176,11 +199,19 @@ export class WebVpnService {
    * 发送请求（自动处理 WebVPN URL 转换）
    */
   async fetch(url: string, options: RequestInit = {}): Promise<Response> {
+    return this.fetchWithRedirects(url, options, 0);
+  }
+
+  private async fetchWithRedirects(url: string, options: RequestInit, redirectCount: number): Promise<Response> {
+    if (redirectCount > 10) {
+      throw new Error("too many WebVPN redirects");
+    }
+
     const targetUrl = this._enabled ? this.convertUrl(url) : url;
-    const headers = {
-      ...this.getHeaders(),
-      ...options.headers as Record<string, string>,
-    };
+    const headers = new Headers(this.getHeaders());
+    for (const [name, value] of new Headers(options.headers).entries()) {
+      headers.set(name, value);
+    }
 
     const response = await fetch(targetUrl, {
       ...options,
@@ -193,7 +224,8 @@ export class WebVpnService {
       const location = response.headers.get("location");
       if (location) {
         this.updateCookies(response);
-        return this.fetch(location, options);
+        const nextUrl = new URL(location, response.url || targetUrl).toString();
+        return this.fetchWithRedirects(nextUrl, redirectOptions(options, response.status), redirectCount + 1);
       }
     }
 
@@ -215,7 +247,7 @@ export class WebVpnService {
 
   private getHeaders(): Record<string, string> {
     const headers: Record<string, string> = {
-      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+      "User-Agent": this.userAgent,
       "Referer": WEBVPN_BASE,
     };
 
@@ -231,16 +263,24 @@ export class WebVpnService {
   }
 
   private updateCookies(response: Response): void {
-    const setCookies = response.headers.getSetCookie?.() || [];
+    const headers = response.headers as Headers & { getSetCookie?: () => string[] };
+    const setCookies = headers.getSetCookie?.() || splitSetCookieHeader(headers.get("set-cookie"));
     for (const cookie of setCookies) {
       const [nameValue] = cookie.split(";");
       if (nameValue) {
-        const [name, value] = nameValue.split("=");
+        const separator = nameValue.indexOf("=");
+        if (separator < 1) continue;
+        const name = nameValue.slice(0, separator);
+        const value = nameValue.slice(separator + 1);
         if (name && value) {
           this.cookies.set(name.trim(), value.trim());
         }
       }
     }
+  }
+
+  private get userAgent(): string {
+    return "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36";
   }
 
   private async get(url: string): Promise<Response> {
@@ -303,6 +343,29 @@ export class WebVpnService {
 
     return prefixHex + encrypted;
   }
+}
+
+function splitSetCookieHeader(value: string | null): string[] {
+  if (!value) {
+    return [];
+  }
+  return value.split(/,(?=\s*[^;,=\s]+=[^;,]*)/);
+}
+
+function redirectOptions(options: RequestInit, status: number): RequestInit {
+  const method = options.method?.toUpperCase();
+  if ((status === 301 || status === 302 || status === 303) && method && method !== "GET" && method !== "HEAD") {
+    const headers = new Headers(options.headers);
+    headers.delete("content-type");
+    headers.delete("content-length");
+    return {
+      ...options,
+      method: "GET",
+      body: undefined,
+      headers,
+    };
+  }
+  return options;
 }
 
 // 单例

@@ -135,7 +135,7 @@
 | API 请求 | ✅ | 通过 WebVPN 访问 CC98 API |
 | 主流程集成 | ✅ | Cc98Client 自动使用 WebVPN |
 | CLI 命令 | ✅ | `cc98 vpn login/logout/status/test/mode` |
-| 凭据存储 | ✅ | `~/.cc98-cli/vpn.json` |
+| 会话存储 | ✅ | `~/.cc98-cli/vpn.json` 保存 WebVPN Cookie，不保存密码 |
 | TUI 启动检测 | ✅ | 启动时自动检测网络并初始化 WebVPN |
 
 ### 按键设计

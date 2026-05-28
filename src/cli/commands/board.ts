@@ -5,7 +5,7 @@ import { extractPageOptions, parsePositiveInteger, printJson } from "../parse.js
 export async function boardCommand(args: string[]): Promise<void> {
   const accountOption = extractAccountOption(args);
   const [subcommandOrId, ...rest] = accountOption.args;
-  const { client } = createCliContext({ account: accountOption.account });
+  const { client } = await createCliContext({ account: accountOption.account });
 
   if (!subcommandOrId || subcommandOrId === "--help" || subcommandOrId === "-h" || subcommandOrId === "help") {
     printBoardHelp();

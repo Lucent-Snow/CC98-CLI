@@ -16,7 +16,7 @@ export async function loginCommand(args: string[] = []): Promise<void> {
     return;
   }
 
-  const { client, tokenStore } = createCliContext();
+  const { client, tokenStore } = await createCliContext();
   const username = options.username ?? (await promptText("CC98 username: ")).trim();
   const password = options.passwordStdin
     ? (await readStdinText()).trimEnd()

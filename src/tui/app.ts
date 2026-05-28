@@ -15,8 +15,8 @@ export async function runTui(): Promise<void> {
   
   // 读取 VPN 配置
   const vpnConfig = await vpnStore.getConfig();
-  const webVpnOptions: WebVpnOptions | undefined = vpnConfig.username
-    ? { mode: vpnConfig.mode }
+  const webVpnOptions: WebVpnOptions | undefined = vpnConfig.mode === "vpn" || vpnConfig.cookies
+    ? { mode: vpnConfig.mode, cookies: vpnConfig.cookies }
     : undefined;
   
   const cc98Client = new Cc98Client({ tokenStore, webVpn: webVpnOptions });

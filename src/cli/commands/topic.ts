@@ -24,7 +24,7 @@ export async function topicCommand(args: string[]): Promise<void> {
     return;
   }
 
-  const { client } = createCliContext({ account: accountOption.account });
+  const { client } = await createCliContext({ account: accountOption.account });
 
   if (/^\d+$/.test(subcommandOrId)) {
     const topicId = parsePositiveInteger(subcommandOrId, "topic-id");

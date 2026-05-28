@@ -67,8 +67,7 @@ async function vpnLogin(args: string[]): Promise<void> {
       const confirmResult = await vpn.confirmLogin();
       if (confirmResult.success) {
         console.log("✅ WebVPN 登录成功");
-        await store.saveUsername(username);
-        await store.saveConfig({ mode: "auto", username });
+        await store.saveSession(username, vpn.getCookies());
       } else {
         console.error("❌ 确认登录失败:", confirmResult.message);
         return;
@@ -79,8 +78,7 @@ async function vpnLogin(args: string[]): Promise<void> {
     }
   } else if (result.success) {
     console.log("✅ WebVPN 登录成功");
-    await store.saveUsername(username);
-    await store.saveConfig({ mode: "auto", username });
+    await store.saveSession(username, vpn.getCookies());
   } else {
     console.error("❌ WebVPN 登录失败:", result.message);
     return;
@@ -120,10 +118,14 @@ async function vpnStatus(): Promise<void> {
   console.log("WebVPN 状态:");
   console.log(`  模式: ${config.mode}`);
   console.log(`  用户名: ${config.username || "未配置"}`);
+  console.log(`  会话: ${config.cookies ? "已保存" : "未登录"}`);
+  if (config.loggedInAt) {
+    console.log(`  登录时间: ${config.loggedInAt}`);
+  }
 
   if (config.username) {
     console.log("\n测试连接...");
-    const vpn = new WebVpnService();
+    const vpn = new WebVpnService(config.cookies);
     const inCampus = await vpn.checkNetwork();
     console.log(`  校园网: ${inCampus ? "是" : "否"}`);
 
@@ -156,9 +158,14 @@ async function vpnTest(): Promise<void> {
   const store = new VpnStore();
   const config = await store.getConfig();
 
-  if (config.username) {
+  if (config.username && config.cookies) {
     console.log(`   使用账号: ${config.username}`);
-    console.log("   请运行 'cc98 vpn login' 重新登录");
+    vpn.loadCookies(config.cookies);
+    const response = await vpn.fetch("https://api.cc98.org/config/index");
+    console.log(`   API 访问: ${response.ok ? "成功" : `失败 ${response.status}`}`);
+  } else if (config.username) {
+    console.log(`   已配置账号: ${config.username}`);
+    console.log("   未保存有效会话，请运行 'cc98 vpn login' 重新登录");
   } else {
     console.log("   未配置 WebVPN 账号");
     console.log("   请运行 'cc98 vpn login' 配置");

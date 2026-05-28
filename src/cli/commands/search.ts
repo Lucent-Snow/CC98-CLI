@@ -8,7 +8,7 @@ export async function searchCommand(args: string[]): Promise<void> {
     throw new Error("usage: cc98 search <keyword>");
   }
 
-  const { client } = createCliContext({ account: accountOption.account });
+  const { client } = await createCliContext({ account: accountOption.account });
   const result = await client.searchTopics(keyword);
   console.log(JSON.stringify(result, null, 2));
 }

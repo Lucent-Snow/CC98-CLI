@@ -11,7 +11,9 @@ export interface VpnCredentials {
 export interface VpnConfig {
   mode: "auto" | "vpn" | "direct";
   username?: string;
-  // 密码不持久化，每次需要时输入
+  cookies?: Record<string, string>;
+  loggedInAt?: string;
+  // 密码不持久化，登录后仅保存 WebVPN 会话 Cookie
 }
 
 const VPN_CONFIG_FILE = "vpn.json";
@@ -64,6 +66,20 @@ export class VpnStore {
   }
 
   /**
+   * 保存 WebVPN 会话 Cookie
+   */
+  async saveSession(username: string, cookies: Record<string, string>): Promise<void> {
+    const config = await this.getConfig();
+    await this.saveConfig({
+      ...config,
+      mode: config.mode ?? "auto",
+      username,
+      cookies,
+      loggedInAt: new Date().toISOString(),
+    });
+  }
+
+  /**
    * 保存 VPN 模式
    */
   async saveMode(mode: VpnConfig["mode"]): Promise<void> {
@@ -82,12 +98,21 @@ export class VpnStore {
 }
 
 function isVpnConfig(value: unknown): value is VpnConfig {
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    "mode" in value &&
-    typeof (value as VpnConfig).mode === "string" &&
-    ["auto", "vpn", "direct"].includes((value as VpnConfig).mode)
+  if (
+    typeof value !== "object" ||
+    value === null ||
+    !("mode" in value) ||
+    typeof (value as VpnConfig).mode !== "string" ||
+    !["auto", "vpn", "direct"].includes((value as VpnConfig).mode)
+  ) {
+    return false;
+  }
+
+  const config = value as VpnConfig;
+  return config.cookies === undefined || (
+    typeof config.cookies === "object" &&
+    config.cookies !== null &&
+    Object.values(config.cookies).every((cookie) => typeof cookie === "string")
   );
 }
 

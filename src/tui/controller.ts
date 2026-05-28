@@ -924,7 +924,7 @@ export class TuiController {
     this.render();
     try {
       const results = this.state.searchMode === "topics"
-        ? asArray(await this.client.searchTopics(query, 0, 20, true, signal)).map((topic) => topicItem(topic))
+        ? this.filterSearchTopicScope(asArray(await this.client.searchTopics(query, 0, 20, true, signal)).map((topic) => topicItem(topic)))
         : asArray(await this.client.searchUsers(query, true, signal)).map((user) => userItem(user));
       this.state.searchResults = results;
       this.state.itemIndex = 0;
@@ -934,6 +934,14 @@ export class TuiController {
       this.state.loading = false;
       this.render();
     }
+  }
+
+  private filterSearchTopicScope(items: ContentItem[]): ContentItem[] {
+    const boardId = this.state.searchScope.boardId;
+    if (boardId === undefined) {
+      return items;
+    }
+    return items.filter((item) => item.boardId === boardId);
   }
 
   private async toggleFavorite(): Promise<void> {
@@ -1089,10 +1097,11 @@ export class TuiController {
       this.state.status = `已缓存: ${localPath}`;
       this.render();
       // 用系统默认程序打开图片
-      const { exec } = await import("node:child_process");
+      const { execFile } = await import("node:child_process");
       const platform = process.platform;
-      const cmd = platform === "darwin" ? "open" : platform === "win32" ? "start" : "xdg-open";
-      exec(`${cmd} "${localPath}"`, (error) => {
+      const command = platform === "win32" ? "cmd" : platform === "darwin" ? "open" : "xdg-open";
+      const args = platform === "win32" ? ["/c", "start", "", localPath] : [localPath];
+      execFile(command, args, (error) => {
         if (error) {
           this.state.status = `打开失败: ${error.message}`;
           this.render();
@@ -1106,22 +1115,18 @@ export class TuiController {
 
   private async copyToClipboard(text: string): Promise<void> {
     try {
-      const { exec } = await import("node:child_process");
+      const { spawn } = await import("node:child_process");
       const platform = process.platform;
-      let cmd: string;
-      if (platform === "darwin") {
-        cmd = `echo "${text}" | pbcopy`;
-      } else if (platform === "win32") {
-        cmd = `echo "${text}" | clip`;
-      } else {
-        cmd = `echo "${text}" | xclip -selection clipboard`;
-      }
-      exec(cmd, (error) => {
-        if (error) {
-          this.state.status = "复制失败";
-        } else {
-          this.state.status = "已复制到剪贴板";
-        }
+      const command = platform === "win32" ? "clip" : platform === "darwin" ? "pbcopy" : "xclip";
+      const args = platform === "linux" ? ["-selection", "clipboard"] : [];
+      const child = spawn(command, args);
+      child.stdin.end(text);
+      child.on("error", () => {
+        this.state.status = "复制失败";
+        this.render();
+      });
+      child.on("close", (code) => {
+        this.state.status = code === 0 ? "已复制到剪贴板" : "复制失败";
         this.render();
       });
     } catch {

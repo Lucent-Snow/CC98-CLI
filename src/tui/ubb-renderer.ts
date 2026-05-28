@@ -177,12 +177,18 @@ function resolveColor(color: string): string {
 function stripRemainingUbb(value: string): string {
   // 保留表情包代码
   const emoticonPlaceholders: string[] = [];
+  const linkPlaceholders: string[] = [];
   let result = value;
 
   // 先将表情包代码替换为占位符
   result = result.replace(/\[(?:ac\d{2,4}|em\d{2}|cc98\d{2}|a:\d{3}|tb\d{2})\]/gi, (match) => {
     emoticonPlaceholders.push(match);
     return `__EMOTICON_${emoticonPlaceholders.length - 1}__`;
+  });
+
+  result = result.replace(/\[\d+\]/g, (match) => {
+    linkPlaceholders.push(match);
+    return `__LINK_${linkPlaceholders.length - 1}__`;
   });
 
   // 移除已知的 UBB 标签
@@ -194,6 +200,9 @@ function stripRemainingUbb(value: string): string {
   // 恢复表情包代码
   for (let i = 0; i < emoticonPlaceholders.length; i++) {
     result = result.replace(`__EMOTICON_${i}__`, emoticonPlaceholders[i]);
+  }
+  for (let i = 0; i < linkPlaceholders.length; i++) {
+    result = result.replace(`__LINK_${i}__`, linkPlaceholders[i]);
   }
 
   return result;
@@ -220,7 +229,16 @@ function wrapLines(value: string, width: number): string[] {
 
     let current = "";
     let currentWidth = 0;
-    for (const char of paragraph) {
+    for (let index = 0; index < paragraph.length;) {
+      if (paragraph[index] === "\x1b") {
+        const end = findAnsiEnd(paragraph, index);
+        current += paragraph.slice(index, end);
+        index = end;
+        continue;
+      }
+
+      const codePoint = paragraph.codePointAt(index);
+      const char = codePoint === undefined ? paragraph[index] : String.fromCodePoint(codePoint);
       const nextWidth = charWidth(char);
       if (currentWidth + nextWidth > maxWidth) {
         lines.push(current);
@@ -230,11 +248,21 @@ function wrapLines(value: string, width: number): string[] {
         current += char;
         currentWidth += nextWidth;
       }
+      index += char.length;
     }
     lines.push(current);
   }
 
   return lines;
+}
+
+function findAnsiEnd(value: string, start: number): number {
+  for (let index = start + 1; index < value.length; index += 1) {
+    if (/[A-Za-z]/.test(value[index])) {
+      return index + 1;
+    }
+  }
+  return value.length;
 }
 
 function shortUrl(value: string): string {

@@ -18,7 +18,7 @@ export async function noticeCommand(args: string[]): Promise<void> {
   }
 
   const page = extractPageOptions(rest, { size: 10 });
-  const { client } = createCliContext({ account: accountOption.account });
+  const { client } = await createCliContext({ account: accountOption.account });
   printJson(await client.getNotices(typeArg, page.from, page.size));
 }
 

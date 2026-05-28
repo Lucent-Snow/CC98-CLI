@@ -8,6 +8,8 @@ export interface AuthToken {
 export interface WebVpnOptions {
   /** WebVPN 模式: auto=自动检测, vpn=强制使用, direct=强制直连 */
   mode?: "auto" | "vpn" | "direct";
+  /** 已登录 WebVPN 会话 Cookie */
+  cookies?: Record<string, string>;
   /** WebVPN 登录凭据（浙大通行证） */
   credentials?: {
     username: string;

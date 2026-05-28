@@ -26,7 +26,7 @@ export class Cc98Client {
     
     // 如果配置了 WebVPN，初始化服务
     if (options.webVpn) {
-      this.webVpn = new WebVpnService();
+      this.webVpn = new WebVpnService(options.webVpn.cookies);
     }
   }
 
@@ -56,6 +56,9 @@ export class Cc98Client {
           console.error("WebVPN login failed:", result.message);
         }
       }
+      if (!this.webVpn.isLoggedIn) {
+        console.error("WebVPN is enabled but not logged in. Run \"cc98 vpn login\" first.");
+      }
       return;
     }
 
@@ -72,6 +75,10 @@ export class Cc98Client {
         if (!result.success) {
           console.error("WebVPN login failed:", result.message);
         }
+      }
+      if (!this.webVpn.isLoggedIn) {
+        this.webVpn.enabled = false;
+        console.error("WebVPN is needed but not logged in. Run \"cc98 vpn login\" first.");
       }
     }
   }

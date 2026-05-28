@@ -1,6 +1,7 @@
 import { renderUbbToLines } from "./ubb-renderer.js";
 import type { TopicLineEntry, TopicPostEntry, TopicReaderState } from "./state/types.js";
 import { asArray, asNumber, asObject, normalizeInline } from "./helpers.js";
+import { stripAnsi } from "./ansi.js";
 
 const topicWidth = 72;
 
@@ -92,6 +93,16 @@ export function parseBracketIndex(value: string, label: "image" | "link"): numbe
   return match ? Number(match[1]) : undefined;
 }
 
+function parseLinkIndex(value: string): number | undefined {
+  const plain = stripAnsi(value);
+  const explicit = parseBracketIndex(plain, "link");
+  if (explicit !== undefined) {
+    return explicit;
+  }
+  const inline = plain.match(/\[(\d+)\]/);
+  return inline ? Number(inline[1]) : undefined;
+}
+
 function renderPosts(posts: unknown[], lineOffset: number): {
   lines: string[];
   posts: TopicPostEntry[];
@@ -122,7 +133,7 @@ function renderPosts(posts: unknown[], lineOffset: number): {
     for (const renderedLine of rendered.lines) {
       const kind = classifyLine(renderedLine);
       const imageIndex = kind === "image" ? parseBracketIndex(renderedLine, "image") : undefined;
-      const linkIndex = kind === "link" ? parseBracketIndex(renderedLine, "link") : undefined;
+      const linkIndex = kind === "link" ? parseLinkIndex(renderedLine) : undefined;
       lines.push(renderedLine);
       postLines.push({
         line: lineOffset + lines.length - 1,
@@ -166,16 +177,17 @@ function renderPosts(posts: unknown[], lineOffset: number): {
 }
 
 function classifyLine(line: string): TopicLineEntry["kind"] {
-  if (line.startsWith("[image ")) {
+  const plain = stripAnsi(line);
+  if (plain.startsWith("[image ")) {
     return "image";
   }
-  if (line.startsWith("[link ")) {
+  if (plain.startsWith("[link ") || /\[\d+\]/.test(plain)) {
     return "link";
   }
-  if (line.startsWith("│ ")) {
+  if (plain.startsWith("│ ")) {
     return "quote";
   }
-  if (line.trim() === "") {
+  if (plain.trim() === "") {
     return "blank";
   }
   return "text";
