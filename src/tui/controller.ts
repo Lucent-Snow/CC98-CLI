@@ -152,9 +152,8 @@ export class TuiController {
 
   private handleModalKey(key: string): void {
     if (this.state.modal === "help" || this.state.modal === "info") {
-      if (key === "\x1b" || key === "\r" || key === "h" || key === "\x1b[D" || key === "?") {
-        this.closeModal();
-      }
+      // 帮助/信息弹窗：任意键关闭
+      this.closeModal();
       return;
     }
     if (this.state.modal === "search") {
@@ -171,7 +170,8 @@ export class TuiController {
   }
 
   private handleSearchKey(key: string): void {
-    if (key === "\x1b") {
+    if (key === "\x1b" || key === "/") {
+      // Esc 或 / 关闭搜索
       this.state.modal = null;
       this.state.searchQuery = "";
       this.render();
@@ -197,9 +197,11 @@ export class TuiController {
     if (key === "\r") {
       const selected = this.state.searchResults[this.state.itemIndex];
       if (selected) {
+        // 有选中项：打开
         this.state.modal = null;
         void this.activateContentItem(selected, this.nextSignal());
       } else if (this.state.searchQuery.trim()) {
+        // 无选中项：执行搜索
         void this.performSearch(this.nextSignal());
       }
       return;
@@ -220,7 +222,8 @@ export class TuiController {
   }
 
   private handleUserModalKey(key: string): void {
-    if (key === "\x1b") {
+    if (key === "\x1b" || key === "u") {
+      // Esc 或 u 关闭用户详情
       this.closeModal();
       return;
     }
@@ -257,12 +260,14 @@ export class TuiController {
       this.render();
       return;
     }
-    if (key === "h" || key === "\x1b[D" || key === "\x1b" || key === "o") {
+    if (key === "\x1b" || key === "o") {
+      // Esc 或 o 关闭菜单
       this.state.modal = null;
       this.render();
       return;
     }
-    if (key === "\r" || key === "l" || key === "\x1b[C") {
+    if (key === "\r" || key === "l") {
+      // Enter 或 l 执行选中项
       const selected = this.state.menuItems[this.state.menuIndex];
       this.state.modal = null;
       if (selected?.action === "refresh") void this.refresh();
@@ -476,8 +481,17 @@ export class TuiController {
     this.state.searchQuery = "";
     this.state.searchResults = [];
     this.state.searchMode = "topics";
+    this.state.searchScope = this.getSearchScope();
     this.state.itemIndex = 0;
     this.render();
+  }
+
+  private getSearchScope(): { label: string; boardId?: number } {
+    // 根据当前位置确定搜索范围
+    if (this.state.currentBoard) {
+      return { label: this.state.currentBoard.title, boardId: this.state.currentBoard.boardId };
+    }
+    return { label: "全站" };
   }
 
   private openMenu(): void {
@@ -544,7 +558,7 @@ export class TuiController {
           title: "版面",
           items: boards.slice(0, 24),
           stats: [{ title: "分区", detail: `${sections.length}` }, { title: "版面", detail: `${boards.length}` }],
-          status: "版面：j/k 选择  l 进入版面  h 返回  r 刷新"
+          status: "版面：j/k 选择  Enter 进入版面  h 返回  r 刷新"
         };
       }
       case "following": {
@@ -553,7 +567,7 @@ export class TuiController {
           title: "关注",
           items: topics.map((topic) => topicItem(topic)),
           stats: [{ title: "关注动态", detail: `${topics.length} 条` }, { title: "缓存", detail: "30s" }],
-          status: "关注：j/k 选择  l 打开帖子  h 返回  r 刷新"
+          status: "关注：j/k 选择  Enter 打开帖子  h 返回  r 刷新"
         };
       }
       case "favorite": {
@@ -574,7 +588,8 @@ export class TuiController {
         return {
           title: "收藏",
           items: [
-            { title: "收藏主题", meta: "topic/me/favorite", detail: "打开收藏夹主题列表", action: "favorite-topics" },
+            { title: "收藏主题", meta: "topic/me/favorite", detail: "查看收藏夹主题列表", action: "favorite-topics" },
+            { title: "收藏更新", meta: "topic/me/favorite?order=1", detail: "查看收藏主题更新", action: "favorite-updates" },
             { title: "收藏分组", meta: "me/favorite-topic-group", detail: "查看收藏夹分组", action: "favorite-groups" },
             ...asArray(topicFavorites).slice(0, 6).map((topic) => topicItem(topic)),
             ...boardTopics
@@ -584,7 +599,7 @@ export class TuiController {
             { title: "收藏主题", detail: `${asArray(topicFavorites).length} 条` },
             { title: "版面主题", detail: `${boardTopics.length} 条` }
           ],
-          status: "收藏：j/k 选择  l 打开  h 返回  r 刷新"
+          status: "收藏：j/k 选择  Enter 打开  h 返回  r 刷新"
         };
       }
       case "messages": {
@@ -598,7 +613,7 @@ export class TuiController {
           title: "消息",
           items: chats.length > 0 ? chats.map((chat) => chatItem(chat, names)) : [{ title: "暂无最近私信", meta: "recent-contact-users" }],
           stats: unreadStats(asObject(unread)),
-          status: "消息：j/k 选择  l 打开会话  h 返回  r 刷新"
+          status: "消息：j/k 选择  Enter 打开会话  h 返回  r 刷新"
         };
       }
       case "notices": {
@@ -611,7 +626,7 @@ export class TuiController {
             { title: "回复通知", meta: `${unread.replyCount ?? 0} 未读`, detail: "查看回复我的通知", action: "notices:reply" }
           ],
           stats: unreadStats(unread),
-          status: "通知：j/k 选择  l 打开列表  h 返回  r 刷新"
+          status: "通知：j/k 选择  Enter 打开列表  h 返回  r 刷新"
         };
       }
       case "me": {
@@ -623,41 +638,25 @@ export class TuiController {
             { title: String(meObject.name ?? "当前账号"), meta: `#${meObject.id ?? "?"}`, detail: String(meObject.levelTitle ?? meObject.groupName ?? ""), userId: asNumber(meObject.id) },
             { title: "我的最近主题", meta: "me/recent-topic", detail: "查看自己最近发布或回复的主题", action: "recent-topics" },
             { title: "浏览历史", meta: "me/browsing-record", detail: "查看最近浏览过的主题", action: "browse-history" },
+            { title: "粉丝列表", meta: "me/follower", detail: "查看关注我的用户", action: "followers" },
+            { title: "关注列表", meta: "me/followee", detail: "查看我关注的用户", action: "followees" },
+            { title: "随机主题", meta: "topic/random-recent", detail: "随机读取一组最近主题", action: "random-topics" },
             { title: "每日签到", meta: "me/signin", detail: "执行签到", action: "signin" }
           ],
           stats: [
             { title: "登录状态", detail: "已登录" },
             { title: "缓存", detail: `${cacheStats.fileCacheEntries} 文件` }
           ],
-          status: "我的：j/k 选择  l 打开  h 返回  r 刷新"
+          status: "我的：j/k 选择  Enter 打开  h 返回  r 刷新"
         };
       }
-      case "more":
-        return {
-          title: "更多",
-          items: [
-            { title: "随机主题", meta: "topic/random-recent", detail: "随机读取一组最近主题", action: "random-topics" },
-            { title: "我的最近主题", meta: "me/recent-topic", detail: "查看自己最近发布或回复的主题", action: "recent-topics" },
-            { title: "浏览历史", meta: "me/browsing-record", detail: "查看最近浏览过的主题", action: "browse-history" },
-            { title: "收藏主题", meta: "topic/me/favorite", detail: "查看收藏夹主题", action: "favorite-topics" },
-            { title: "收藏更新", meta: "topic/me/favorite?order=1", detail: "查看收藏主题更新", action: "favorite-updates" },
-            { title: "收藏分组", meta: "me/favorite-topic-group", detail: "查看收藏夹分组", action: "favorite-groups" },
-            { title: "粉丝列表", meta: "me/follower", detail: "查看关注我的用户", action: "followers" },
-            { title: "关注列表", meta: "me/followee", detail: "查看我关注的用户", action: "followees" },
-            { title: "全站统计", meta: "card.cc98.org/api/collection/stat", detail: "查看论坛全站统计", action: "card-stat" },
-            { title: "评分原因: 普通", meta: "post/rating-reason?type=0", detail: "查看普通评分原因", action: "rate-reasons:0" },
-            { title: "评分原因: 管理", meta: "post/rating-reason?type=1", detail: "查看管理评分原因", action: "rate-reasons:1" }
-          ],
-          stats: [{ title: "只读入口", detail: "11 个" }, { title: "写入", detail: "不含发帖/回帖" }],
-          status: "更多：j/k 选择  l 打开只读内容  h 返回  r 刷新"
-        };
       case "settings": {
         const cacheStats = await this.client.getCacheStats();
         return {
           title: "设置",
           items: [...settingsItems],
           stats: [{ title: "缓存", detail: `${cacheStats.fileCacheEntries} 文件` }, { title: "版本", detail: `v${appVersion}` }],
-          status: "设置：j/k 选择  l 执行  h 返回"
+          status: "设置：j/k 选择  Enter 执行  h 返回"
         };
       }
     }
@@ -767,7 +766,7 @@ export class TuiController {
       const topics = asArray(await this.client.getBoardTopics(boardId, 0, 20, false, force, signal));
       this.state.items = topics.map((topic) => topicItem(topic, { title, boardId }));
       this.state.stats = [{ title: "主题", detail: `${topics.length} 条` }];
-      this.state.status = `版面 ${title}: j/k 选择  l 打开帖子  h 返回`;
+      this.state.status = `版面 ${title}: j/k 选择  Enter 打开帖子  h 返回`;
     } catch (error) {
       if (!isAbortError(error)) this.state.error = error instanceof Error ? error.message : String(error);
     } finally {
@@ -1163,7 +1162,7 @@ export class TuiController {
     this.state.currentChat = undefined;
     this.state.topic = undefined;
     this.state.mode = "list";
-    this.state.status = `${title}: j/k 选择  l 打开  h 返回`;
+    this.state.status = `${title}: j/k 选择  Enter 打开  h 返回`;
     this.render();
   }
 

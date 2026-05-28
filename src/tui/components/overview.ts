@@ -2,22 +2,36 @@
 
 import type { TuiState } from "../state/types.js";
 import type { Component } from "./types.js";
-import { fg } from "../ansi.js";
+import { fg, ansi } from "../ansi.js";
 import { fit } from "./utils.js";
 
 const cc98BlueSoft = fg(94, 180, 232);
+const danger = fg(245, 101, 101);
+const muted = fg(139, 152, 166);
 
 export class Overview implements Component {
   visible = true;
 
   render(state: TuiState, width: number, height: number): string[] {
     const rows: string[] = [];
-    const summary = state.overview.length > 0
-      ? state.overview.map((entry) => `${entry.title} ${entry.detail ?? "-"}`).join("  ")
-      : "全站概览会在读取十大时更新";
-    rows.push(fit(`${cc98BlueSoft} ${summary}`, width));
-
-    // 不在这里渲染分隔线，由 renderer.ts 负责绘制带正确连接符的分隔线
+    
+    if (state.overview.length === 0) {
+      rows.push(fit(`${muted} 加载中...`, width));
+      return rows.slice(0, height);
+    }
+    
+    const parts: string[] = [];
+    for (const entry of state.overview) {
+      const value = entry.detail ?? "-";
+      // 未读数大于 0 时用红色高亮
+      if (entry.title === "未读" && value !== "0") {
+        parts.push(`${entry.title} ${danger}${value}${ansi.reset}`);
+      } else {
+        parts.push(`${entry.title} ${value}`);
+      }
+    }
+    
+    rows.push(fit(`${cc98BlueSoft} ${parts.join("  ")}`, width));
 
     return rows.slice(0, height);
   }

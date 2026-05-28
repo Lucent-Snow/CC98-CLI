@@ -24,6 +24,7 @@ export function createInitialState(): TuiState {
     searchMode: "topics",
     searchQuery: "",
     searchResults: [],
+    searchScope: { label: "全站" },
     noticeType: "system",
     inputMode: false,
     inputPrompt: "",

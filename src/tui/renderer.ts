@@ -170,10 +170,7 @@ function drawNavRight(state: TuiState, width: number, height: number): string[] 
     }
   }
 
-  if (rows.length < height) rows.push(`${line}${"─".repeat(Math.max(0, width - 1))}${ansi.reset}`);
-  if (rows.length < height) rows.push(`${muted} j/k 切换栏目${ansi.reset}`);
-  if (rows.length < height) rows.push(`${muted} l/Enter 进入内容${ansi.reset}`);
-  if (rows.length < height) rows.push(`${muted} r 刷新当前栏目${ansi.reset}`);
+  // 删除快捷键提示，只保留统计信息
   return rows.concat(blank(height - rows.length, width)).slice(0, height);
 }
 
@@ -191,6 +188,14 @@ function drawItemRight(state: TuiState, width: number, height: number): string[]
   if (selected.topicId !== undefined) rows.push(`${muted} 主题 #${selected.topicId}${ansi.reset}`);
   if (selected.boardId !== undefined) rows.push(`${muted} 版面 #${selected.boardId}${ansi.reset}`);
   if (selected.userId !== undefined) rows.push(`${muted} 用户 #${selected.userId}${ansi.reset}`);
+  
+  // 添加帖子元信息（如果有）
+  if (selected.sortTime) {
+    const date = new Date(selected.sortTime);
+    const timeStr = date.toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
+    rows.push(`${muted} 时间: ${timeStr}${ansi.reset}`);
+  }
+  
   return rows.concat(blank(height - rows.length, width)).slice(0, height);
 }
 
@@ -220,15 +225,17 @@ function drawTopicRight(topic: TopicReaderState, scroll: number, width: number, 
 }
 
 function drawHelpModal(baseLines: string[], width: number, height: number): string {
-  return overlay(baseLines, width, height, Math.min(54, width - 4), [
+  return overlay(baseLines, width, height, Math.min(60, width - 4), [
     `${cc98Blue}${ansi.bold}快捷键帮助${ansi.reset}`,
     "",
-    "导航: j/k 上下  h/l 返回/进入  Enter 确认",
+    "导航: j/k ↑↓ 移动  h ← 返回  Enter 打开",
     "全局: / 搜索  r 刷新  o 菜单  ? 帮助  q 退出",
-    "帖子: j/k 滚动  n 下一页  s 收藏  l 赞  d 踩",
-    "帖子: u 用户  [/ ] 楼层  数字+Enter 跳转",
+    "帖子: j/k 滚动  n 下页  s 收藏  l 赞  d 踩",
+    "帖子: u 用户  [/] 楼层  数字+Enter 跳楼",
+    "搜索: j/k ↑↓ 移动  Enter 搜索/打开  Tab 切换",
+    "菜单: j/k ↑↓ 移动  Enter 执行  o 关闭",
     "",
-    `${muted}Esc / ? / Enter 关闭${ansi.reset}`
+    `${muted}任意键关闭${ansi.reset}`
   ]);
 }
 
@@ -253,20 +260,22 @@ function drawInfoModal(baseLines: string[], state: TuiState, width: number, heig
 }
 
 function drawSearchModal(baseLines: string[], state: TuiState, width: number, height: number): string {
+  const scopeLabel = state.searchScope?.label ?? "全站";
   const rows = [
     `${cc98Blue}${ansi.bold}搜索${ansi.reset}`,
     "",
+    `范围: ${scopeLabel}`,
     `模式: ${state.searchMode === "topics" ? "● 帖子  ○ 用户" : "○ 帖子  ● 用户"}  Tab 切换`,
     `> ${state.searchQuery}${state.loading ? " ..." : "_"}`,
     ""
   ];
 
-  for (const item of state.searchResults.slice(0, Math.max(0, height - 12))) {
+  for (const item of state.searchResults.slice(0, Math.max(0, height - 14))) {
     rows.push(`${item.title}`);
     if (item.meta) rows.push(`${muted}${item.meta}${ansi.reset}`);
   }
   if (state.searchResults.length === 0 && state.searchQuery && !state.loading) rows.push(`${muted}无结果${ansi.reset}`);
-  rows.push("", `${muted}Enter 搜索/打开  Esc 关闭${ansi.reset}`);
+  rows.push("", `${muted}Enter 搜索/打开  Tab 切换  / 关闭${ansi.reset}`);
   return overlay(baseLines, width, height, Math.min(62, width - 4), rows);
 }
 

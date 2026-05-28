@@ -133,6 +133,10 @@
 | URL 转换 | ✅ | AES-CFB 加密，与 CC98-Desktop 兼容 |
 | 网络检查 | ✅ | 自动检测是否在校园网内 |
 | API 请求 | ✅ | 通过 WebVPN 访问 CC98 API |
+| 主流程集成 | ✅ | Cc98Client 自动使用 WebVPN |
+| CLI 命令 | ✅ | `cc98 vpn login/logout/status/test/mode` |
+| 凭据存储 | ✅ | `~/.cc98-cli/vpn.json` |
+| TUI 启动检测 | ✅ | 启动时自动检测网络并初始化 WebVPN |
 
 ### 按键设计
 

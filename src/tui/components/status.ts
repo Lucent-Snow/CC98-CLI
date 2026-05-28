@@ -23,20 +23,26 @@ export class StatusBar implements Component {
   }
 
   private getKeyHints(state: TuiState): string {
+    if (state.modal === "search") {
+      return "Enter 搜索/打开  Tab 切换  / 关闭";
+    }
+    if (state.modal === "menu") {
+      return "j/k 移动  Enter 执行  o 关闭";
+    }
+    if (state.modal === "user") {
+      return "f 关注  m 私信  u 关闭";
+    }
     if (state.mode === "topic") {
       return "j/k 滚动  n 下页  h 返回  s 收藏  l/d 赞踩  u 用户";
     }
     if (state.mode === "settings") {
-      return "j/k 选择  l/Enter 执行  h 返回";
-    }
-    if (state.modal === "search") {
-      return "Enter 搜索/打开  Tab 切换  Esc 关闭";
+      return "j/k 选择  Enter 执行  h 返回";
     }
     if (state.currentChat) {
       return "j/k 滚动  n 更多  h 返回  r 刷新";
     }
     return state.focus === "nav"
-      ? "j/k 切换栏目  l/Enter 进入  r 刷新  / 搜索  ? 帮助  q 退出"
-      : "j/k 选择  l/Enter 打开  h 返回  r 刷新  / 搜索  ? 帮助  q 退出";
+      ? "j/k 切换  Enter 进入  r 刷新  / 搜索  ? 帮助  q 退出"
+      : "j/k 选择  Enter 打开  h 返回  r 刷新  / 搜索  ? 帮助  q 退出";
   }
 }

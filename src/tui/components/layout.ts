@@ -4,6 +4,7 @@ import type { TuiState } from "../state/types.js";
 import { ansi, bg, fg } from "../ansi.js";
 import { fit, cellWidth } from "./utils.js";
 import { BOX, BOX_ROUNDED } from "../borders.js";
+import { navItems } from "../navigation.js";
 
 // 颜色常量
 const cc98Blue = fg(0, 130, 202);
@@ -175,7 +176,6 @@ function drawSidebar(state: TuiState, width: number, height: number): string[] {
     { id: "messages", label: "消息", hint: "未读与私信" },
     { id: "notices", label: "通知", hint: "系统与回复" },
     { id: "me", label: "我的", hint: "当前账号" },
-    { id: "more", label: "更多", hint: "只读内容" },
     { id: "settings", label: "设置", hint: "账号与配置" }
   ];
 
@@ -372,20 +372,8 @@ function drawRightPanel(state: TuiState, width: number, height: number): string[
 // 绘制导航右侧面板
 function drawNavRight(state: TuiState, width: number, height: number): string[] {
   const rows: string[] = [];
-  const navItems = [
-    { id: "hot", label: "十大", hint: "热门话题" },
-    { id: "favorite", label: "收藏", hint: "版面帖子" },
-    { id: "new", label: "最新", hint: "新帖流" },
-    { id: "boards", label: "版面", hint: "所有分区" },
-    { id: "following", label: "关注", hint: "用户动态" },
-    { id: "messages", label: "消息", hint: "未读与私信" },
-    { id: "notices", label: "通知", hint: "系统与回复" },
-    { id: "me", label: "我的", hint: "当前账号" },
-    { id: "more", label: "更多", hint: "只读内容" },
-    { id: "settings", label: "设置", hint: "账号与配置" }
-  ];
-
   const nav = navItems[state.navIndex];
+
   rows.push(`${cc98Blue}${ansi.bold} ${nav?.label ?? ""}${ansi.reset}`);
   rows.push(`${muted} ${nav?.hint ?? ""}${ansi.reset}`);
   rows.push(`${line}${"─".repeat(Math.max(0, width - 1))}${ansi.reset}`);
@@ -398,19 +386,7 @@ function drawNavRight(state: TuiState, width: number, height: number): string[] 
     }
   }
 
-  if (rows.length < height) {
-    rows.push(`${line}${"─".repeat(Math.max(0, width - 1))}${ansi.reset}`);
-  }
-  if (rows.length < height) {
-    rows.push(`${muted} j/k 切换栏目${ansi.reset}`);
-  }
-  if (rows.length < height) {
-    rows.push(`${muted} l/Enter 进入内容${ansi.reset}`);
-  }
-  if (rows.length < height) {
-    rows.push(`${muted} r 刷新当前栏目${ansi.reset}`);
-  }
-
+  // 删除快捷键提示，只保留统计信息
   while (rows.length < height) {
     rows.push(" ".repeat(width));
   }
@@ -435,6 +411,20 @@ function drawItemRight(state: TuiState, width: number, height: number): string[]
   }
   if (selected.detail) {
     rows.push(`${cc98BlueSoft} ${selected.detail}${ansi.reset}`);
+  }
+  if (selected.topicId !== undefined) {
+    rows.push(`${muted} 主题 #${selected.topicId}${ansi.reset}`);
+  }
+  if (selected.boardId !== undefined) {
+    rows.push(`${muted} 版面 #${selected.boardId}${ansi.reset}`);
+  }
+  if (selected.userId !== undefined) {
+    rows.push(`${muted} 用户 #${selected.userId}${ansi.reset}`);
+  }
+  if (selected.sortTime) {
+    const date = new Date(selected.sortTime);
+    const timeStr = date.toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
+    rows.push(`${muted} 时间: ${timeStr}${ansi.reset}`);
   }
 
   while (rows.length < height) {
@@ -512,46 +502,41 @@ function getStatus(state: TuiState): string {
 function getDefaultStatus(state: TuiState): string {
   switch (state.mode) {
     case "topic":
-      return "j/k 滚动  n 下页  s 收藏  l 赞  d 踩  u 用户  h 返回";
+      return "帖子阅读";
     case "settings":
-      return "j/k 选择  l 执行  h 返回";
+      return "设置";
     default:
       if (state.currentBoard) {
-        return `版面 #${state.currentBoard.boardId}: j/k 选择  l 打开  h 返回  r 刷新`;
+        return `版面 #${state.currentBoard.boardId}`;
       }
       if (state.currentChat) {
-        return `私信: j/k 滚动  n 更多  h 返回`;
+        return "私信";
       }
-      return "j/k 选择  l 进入  h 返回  / 搜索  r 刷新  ? 帮助";
+      return state.focus === "nav" ? "导航" : "列表";
   }
 }
 
 // 获取快捷键提示
 function getKeyHints(state: TuiState): string {
-  const hints: string[] = [];
-
-  hints.push("j/k ↑↓ 移动");
-  hints.push("h← 返回");
-  hints.push("l→ 进入");
-  hints.push("Enter 确认");
-
-  if (state.mode === "topic") {
-    hints.push("s 收藏");
-    hints.push("l 赞");
-    hints.push("d 踩");
-    hints.push("u 用户");
-    hints.push("n 下页");
-    hints.push("【/】楼层");
-    hints.push("数字跳楼");
-  } else if (state.currentChat) {
-    hints.push("n 更多");
+  if (state.modal === "search") {
+    return "Enter 搜索/打开  Tab 切换  / 关闭";
   }
-
-  hints.push("/ 搜索");
-  hints.push("r 刷新");
-  hints.push("o 操作");
-  hints.push("? 帮助");
-  hints.push("q 退出");
-
-  return hints.join(" ");
+  if (state.modal === "menu") {
+    return "j/k 移动  Enter 执行  o 关闭";
+  }
+  if (state.modal === "user") {
+    return "f 关注  m 私信  u 关闭";
+  }
+  if (state.mode === "topic") {
+    return "j/k 滚动  n 下页  h 返回  s 收藏  l/d 赞踩  u 用户";
+  }
+  if (state.mode === "settings") {
+    return "j/k 选择  Enter 执行  h 返回";
+  }
+  if (state.currentChat) {
+    return "j/k 滚动  n 更多  h 返回  r 刷新";
+  }
+  return state.focus === "nav"
+    ? "j/k 切换  Enter 进入  r 刷新  / 搜索  ? 帮助  q 退出"
+    : "j/k 选择  Enter 打开  h 返回  r 刷新  / 搜索  ? 帮助  q 退出";
 }

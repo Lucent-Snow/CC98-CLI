@@ -19,7 +19,6 @@ const navItems: NavItem[] = [
   { id: "messages", label: "消息", hint: "未读与私信" },
   { id: "notices", label: "通知", hint: "系统与回复" },
   { id: "me", label: "我的", hint: "当前账号" },
-  { id: "more", label: "更多", hint: "只读内容" },
   { id: "settings", label: "设置", hint: "账号与配置" }
 ];
 

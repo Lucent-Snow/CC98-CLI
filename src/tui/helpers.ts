@@ -172,13 +172,24 @@ export function unreadStats(value: Record<string, unknown>): ContentItem[] {
 }
 
 export function overviewStats(index: Record<string, unknown>, unread: Record<string, unknown>): ContentItem[] {
+  const systemCount = asNumber(unread.systemCount) ?? 0;
+  const atCount = asNumber(unread.atCount) ?? 0;
+  const replyCount = asNumber(unread.replyCount) ?? 0;
+  const totalUnread = systemCount + atCount + replyCount;
+  
   return [
-    { title: "今日主题", detail: String(asNumber(index.todayTopicCount) ?? 0) },
-    { title: "今日回复", detail: String(asNumber(index.todayCount) ?? 0) },
+    { title: "今日", detail: `${asNumber(index.todayTopicCount) ?? 0}/${asNumber(index.todayCount) ?? 0}` },
     { title: "在线", detail: String(asNumber(index.onlineUserCount) ?? 0) },
-    { title: "用户", detail: String(asNumber(index.userCount) ?? 0) },
-    { title: "未读", detail: String((asNumber(unread.systemCount) ?? 0) + (asNumber(unread.atCount) ?? 0) + (asNumber(unread.replyCount) ?? 0)) }
+    { title: "总帖", detail: formatCount(asNumber(index.postCount) ?? 0) },
+    { title: "未读", detail: totalUnread > 0 ? `${totalUnread}` : "0" }
   ];
+}
+
+function formatCount(count: number): string {
+  if (count >= 10000) {
+    return `${(count / 10000).toFixed(0)}万`;
+  }
+  return String(count);
 }
 
 export async function mapLimit<T, R>(values: T[], limit: number, mapper: (value: T) => Promise<R>): Promise<R[]> {

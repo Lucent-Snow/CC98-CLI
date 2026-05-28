@@ -1,6 +1,6 @@
 // 状态类型定义
 
-export type ViewId = "hot" | "new" | "boards" | "following" | "favorite" | "messages" | "notices" | "me" | "more" | "settings";
+export type ViewId = "hot" | "new" | "boards" | "following" | "favorite" | "messages" | "notices" | "me" | "settings";
 export type FocusColumn = "nav" | "content";
 export type ModalType = "menu" | "help" | "search" | "user" | "info" | null;
 export type TabId = "default" | "posts" | "boards" | "chat" | "notices" | "history" | "followers" | "followees" | "favorites" | "signin" | "my-topics";
@@ -147,6 +147,7 @@ export interface TuiState {
   searchMode: SearchMode;
   searchQuery: string;
   searchResults: ContentItem[];
+  searchScope: { label: string; boardId?: number };
 
   // 用户详情状态
   userDetail?: UserDetailState;
