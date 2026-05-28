@@ -26,7 +26,7 @@ export function draw(state: TuiState, size: { columns: number; rows: number }): 
   const sidebarWidth = width < 90 ? 14 : 18;
   const rightWidth = width < 78 ? 0 : Math.min(42, Math.max(34, Math.floor(width * 0.30)));
   const mainWidth = width - sidebarWidth - rightWidth - (rightWidth > 0 ? 2 : 1);
-  const overviewHeight = height < 24 ? 1 : 2;
+  const overviewHeight = 1; // overview 现在只返回一行数据
   // 计算主体区域高度：总高度 - header - top border - overview - separator - bottom border - status bar
   const bodyHeight = height - 5 - overviewHeight;
   const lines: string[] = [];

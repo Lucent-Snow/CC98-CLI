@@ -43,7 +43,7 @@ export function topicItem(value: unknown, fallbackBoard?: ContentItem): ContentI
   const boardId = asNumber(source.boardId ?? source.BoardId ?? topic.boardId ?? topic.BoardId) ?? fallbackBoard?.boardId;
   const boardName = topic.boardName ?? topic.BoardName ?? source.boardName ?? source.BoardName ?? fallbackBoard?.title;
   return {
-    title: String(source.title ?? source.Title ?? topic.title ?? topic.Title ?? `#${topicId ?? ""}`),
+    title: normalizeInline(String(source.title ?? source.Title ?? topic.title ?? topic.Title ?? `#${topicId ?? ""}`)),
     meta: [
       boardName,
       source.userName ?? source.UserName ?? source.authorName ?? topic.userName ?? topic.UserName ?? topic.authorName,
@@ -61,7 +61,7 @@ export function userItem(value: unknown): ContentItem {
   const user = asObject(value);
   const userId = asNumber(user.id ?? user.Id ?? user.userId ?? user.UserId);
   return {
-    title: String(user.name ?? user.Name ?? user.userName ?? user.UserName ?? (userId !== undefined ? `#${userId}` : "用户")),
+    title: normalizeInline(String(user.name ?? user.Name ?? user.userName ?? user.UserName ?? (userId !== undefined ? `#${userId}` : "用户"))),
     meta: [
       userId !== undefined ? `#${userId}` : undefined,
       user.postCount !== undefined ? `${user.postCount} 帖` : undefined,
@@ -74,11 +74,11 @@ export function userItem(value: unknown): ContentItem {
 
 export function genericItem(value: unknown, fallbackTitle: string): ContentItem {
   if (typeof value === "string") {
-    return { title: value };
+    return { title: normalizeInline(value) };
   }
   const obj = asObject(value);
   return {
-    title: String(obj.title ?? obj.Title ?? obj.name ?? obj.Name ?? fallbackTitle),
+    title: normalizeInline(String(obj.title ?? obj.Title ?? obj.name ?? obj.Name ?? fallbackTitle)),
     meta: normalizeInline(String(obj.meta ?? obj.detail ?? obj.description ?? "")) || undefined,
     detail: normalizeInline(String(obj.detail ?? obj.content ?? "")) || undefined
   };
@@ -109,7 +109,7 @@ export function historyItem(value: unknown): ContentItem {
   const time = typeof timeValue === "string" ? timeValue.replace("T", " ").slice(0, 16) : undefined;
 
   return {
-    title: String(source.title ?? source.Title ?? `#${id ?? "?"}`),
+    title: normalizeInline(String(source.title ?? source.Title ?? `#${id ?? "?"}`)),
     meta: [topicItem(source).meta, time !== undefined ? `浏览 ${time}` : undefined].filter(Boolean).join(" · "),
     topicId: id
   };
@@ -214,7 +214,7 @@ export function flattenBoards(sections: unknown[]): ContentItem[] {
         const todayCount = asNumber(boardObj.todayCount ?? boardObj.TodayCount);
         const topicCount = asNumber(boardObj.topicCount ?? boardObj.TopicCount);
         boards.push({
-          title: String(boardObj.name ?? boardObj.Name ?? boardObj.title ?? boardObj.Title ?? `#${id ?? "?"}`),
+          title: normalizeInline(String(boardObj.name ?? boardObj.Name ?? boardObj.title ?? boardObj.Title ?? `#${id ?? "?"}`)),
           meta: [
             sectionName,
             id !== undefined ? `#${id}` : undefined,

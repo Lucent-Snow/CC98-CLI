@@ -6,7 +6,6 @@ import { fg } from "../ansi.js";
 import { fit } from "./utils.js";
 
 const cc98BlueSoft = fg(94, 180, 232);
-const line = fg(52, 84, 112);
 
 export class Overview implements Component {
   visible = true;
@@ -18,9 +17,7 @@ export class Overview implements Component {
       : "全站概览会在读取十大时更新";
     rows.push(fit(`${cc98BlueSoft} ${summary}`, width));
 
-    if (height > 1) {
-      rows.push(`${line}${"─".repeat(width)}`);
-    }
+    // 不在这里渲染分隔线，由 renderer.ts 负责绘制带正确连接符的分隔线
 
     return rows.slice(0, height);
   }
