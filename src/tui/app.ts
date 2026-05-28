@@ -1,5 +1,7 @@
 import { Cc98Client } from "../api/client.js";
+import type { WebVpnOptions } from "../api/types.js";
 import { TokenStore } from "../storage/token-store.js";
+import { VpnStore } from "../storage/vpn-store.js";
 import { CachedCc98Client } from "./cached-client.js";
 import { TuiController } from "./controller.js";
 import { draw } from "./renderer.js";
@@ -9,7 +11,22 @@ import { Terminal } from "./terminal.js";
 export async function runTui(): Promise<void> {
   const terminal = new Terminal();
   const tokenStore = new TokenStore();
-  const client = new CachedCc98Client(new Cc98Client({ tokenStore }));
+  const vpnStore = new VpnStore();
+  
+  // 读取 VPN 配置
+  const vpnConfig = await vpnStore.getConfig();
+  const webVpnOptions: WebVpnOptions | undefined = vpnConfig.username
+    ? { mode: vpnConfig.mode }
+    : undefined;
+  
+  const cc98Client = new Cc98Client({ tokenStore, webVpn: webVpnOptions });
+  
+  // 初始化 WebVPN（如果需要）
+  if (webVpnOptions) {
+    await cc98Client.initWebVpn();
+  }
+  
+  const client = new CachedCc98Client(cc98Client);
   const state = createInitialState();
   let exitRequested = false;
 

@@ -13,6 +13,7 @@ import { searchCommand } from "./commands/search.js";
 import { topicCommand } from "./commands/topic.js";
 import { updateCommand } from "./commands/update.js";
 import { userCommand } from "./commands/user.js";
+import { vpnCommand } from "./commands/vpn.js";
 import { runTui } from "../tui/app.js";
 import { appName, appVersion } from "../version.js";
 
@@ -33,7 +34,8 @@ const commands: Record<string, CommandHandler> = {
   topic: topicCommand,
   tui: runTui,
   update: updateCommand,
-  user: userCommand
+  user: userCommand,
+  vpn: vpnCommand
 };
 
 export async function runCli(args: string[]): Promise<void> {
@@ -92,6 +94,8 @@ Usage:
   cc98 cache stats          Show cache statistics
   cc98 cache cleanup        Remove expired cache entries
   cc98 cache clear          Clear all cache
+  cc98 vpn login            Login to WebVPN (non-campus network)
+  cc98 vpn status           Show VPN status
   cc98 update               Check the latest GitHub Release
 
 Options:
