@@ -1,6 +1,7 @@
 import { checkForUpdate } from "../update.js";
 import { appVersion } from "../version.js";
 import type { TokenStore } from "../storage/token-store.js";
+import { getImageCache } from "../storage/image-cache.js";
 import type { CachedCc98Client } from "./cached-client.js";
 import { navItems, settingsItems } from "./navigation.js";
 import { getStatus } from "./state/store.js";
@@ -340,7 +341,24 @@ export class TuiController {
     if (key === "u") void this.showCurrentUser(this.nextSignal());
     if (key === "v") void this.showTopicVote(this.nextSignal());
     if (key === "a") void this.showPostReactionState(this.nextSignal());
-    if (key === "o") this.openMenu();
+    if (key === "o") {
+      // 如果当前行是图片行，打开图片；否则打开菜单
+      const currentLine = this.getCurrentTopicLine();
+      if (currentLine?.kind === "image" && currentLine.imageUrl) {
+        void this.openImage(currentLine.imageUrl);
+      } else {
+        this.openMenu();
+      }
+    }
+    if (key === "c") {
+      // 复制图片链接
+      const currentLine = this.getCurrentTopicLine();
+      if (currentLine?.kind === "image" && currentLine.imageUrl) {
+        void this.copyToClipboard(currentLine.imageUrl);
+      } else if (currentLine?.kind === "link" && currentLine.linkUrl) {
+        void this.copyToClipboard(currentLine.linkUrl);
+      }
+    }
   }
 
   private handleSettingsKey(key: string): void {
@@ -1051,6 +1069,66 @@ export class TuiController {
       this.state.status = error instanceof Error ? error.message : "发送失败";
     }
     this.render();
+  }
+
+  private getCurrentTopicLine(): import("./state/types.js").TopicLineEntry | undefined {
+    const topic = this.state.topic;
+    if (!topic) return undefined;
+    for (const post of topic.posts) {
+      const line = post.lines.find((entry) => entry.line === this.state.scroll);
+      if (line) return line;
+    }
+    return undefined;
+  }
+
+  private async openImage(url: string): Promise<void> {
+    this.state.status = "正在下载图片...";
+    this.render();
+    try {
+      const cache = getImageCache();
+      const localPath = await cache.getOrDownload(url);
+      this.state.status = `已缓存: ${localPath}`;
+      this.render();
+      // 用系统默认程序打开图片
+      const { exec } = await import("node:child_process");
+      const platform = process.platform;
+      const cmd = platform === "darwin" ? "open" : platform === "win32" ? "start" : "xdg-open";
+      exec(`${cmd} "${localPath}"`, (error) => {
+        if (error) {
+          this.state.status = `打开失败: ${error.message}`;
+          this.render();
+        }
+      });
+    } catch (error) {
+      this.state.status = error instanceof Error ? error.message : "图片下载失败";
+      this.render();
+    }
+  }
+
+  private async copyToClipboard(text: string): Promise<void> {
+    try {
+      const { exec } = await import("node:child_process");
+      const platform = process.platform;
+      let cmd: string;
+      if (platform === "darwin") {
+        cmd = `echo "${text}" | pbcopy`;
+      } else if (platform === "win32") {
+        cmd = `echo "${text}" | clip`;
+      } else {
+        cmd = `echo "${text}" | xclip -selection clipboard`;
+      }
+      exec(cmd, (error) => {
+        if (error) {
+          this.state.status = "复制失败";
+        } else {
+          this.state.status = "已复制到剪贴板";
+        }
+        this.render();
+      });
+    } catch {
+      this.state.status = "复制失败";
+      this.render();
+    }
   }
 
   private async signin(): Promise<void> {
