@@ -63,6 +63,11 @@ export interface ChatListState {
   hasMore: boolean;
 }
 
+export interface TopicJumpTarget {
+  type: "page" | "floor";
+  value: number;
+}
+
 export interface TopicReaderState {
   topicId: number;
   title: string;
@@ -75,6 +80,7 @@ export interface TopicReaderState {
   imageCount: number;
   linkCount: number;
   floorInput: string;
+  jumpTarget?: TopicJumpTarget;
 }
 
 export interface TopicPostEntry {

@@ -142,7 +142,7 @@ export class Content implements Component {
     }
 
     const pageInfo = topic.hasMore
-      ? `已载入 ${topic.loaded} 楼，n 下一页`
+      ? `已载入 ${topic.loaded} 楼`
       : `已载入 ${topic.loaded} 楼，已到底`;
     rows.push(fit(`${muted}${pageInfo}${state.loadingMore ? " · 加载中" : ""}${ansi.reset}`, width));
     return rows.concat(blank(height - rows.length, width)).slice(0, height);

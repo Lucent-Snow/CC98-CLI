@@ -16,6 +16,7 @@ export const settingsItems: readonly ContentItem[] = [
   { title: "切换账号", meta: "account", detail: "选择或管理登录账号" },
   { title: "检查更新", meta: "update", detail: "检查 CC98-CLI 新版本" },
   { title: "缓存管理", meta: "cache", detail: "查看和清理本地缓存" },
+  { title: "快捷键设置", meta: "keybindings", detail: "自定义快捷键绑定" },
   { title: "快捷键帮助", meta: "help", detail: "查看所有可用快捷键" },
   { title: "退出登录", meta: "logout", detail: "清除本地登录信息" }
 ];

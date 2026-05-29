@@ -3,6 +3,7 @@ import { appVersion } from "../version.js";
 import type { TokenStore } from "../storage/token-store.js";
 import { getImageCache } from "../storage/image-cache.js";
 import type { CachedCc98Client } from "./cached-client.js";
+import { getKeybindingManager, type KeybindingManager } from "./keybindings.js";
 import { navItems, settingsItems } from "./navigation.js";
 import { getStatus } from "./state/store.js";
 import type { ContentItem, MenuItem, NoticeType, TuiState, ViewId } from "./state/types.js";
@@ -30,7 +31,12 @@ import {
   buildTopicReader,
   currentTopicPost,
   findTopicPostByFloor,
-  jumpRelativeTopicFloor
+  jumpRelativeTopicFloor,
+  getTopicPageInfo,
+  jumpToPage,
+  jumpToFloor,
+  jumpToLastPage,
+  FLOORS_PER_PAGE
 } from "./topic-reader.js";
 
 type RenderFn = () => void;
@@ -39,6 +45,7 @@ type SignalFn = () => AbortSignal;
 
 export class TuiController {
   private loadVersion = 0;
+  private readonly keybindings: KeybindingManager;
 
   constructor(
     private readonly state: TuiState,
@@ -48,7 +55,9 @@ export class TuiController {
     private readonly close: CloseFn,
     private readonly nextSignal: SignalFn,
     private readonly abortCurrent: () => void
-  ) {}
+  ) {
+    this.keybindings = getKeybindingManager();
+  }
 
   async load(force = false): Promise<void> {
     const version = ++this.loadVersion;
@@ -72,6 +81,8 @@ export class TuiController {
     this.render();
 
     try {
+      // 加载快捷键配置
+      await this.keybindings.load();
       this.state.account = await this.tokenStore.getCurrentAccountName();
       const next = await this.loadView(nav.id, force, signal);
       if (version !== this.loadVersion) return;
@@ -100,11 +111,11 @@ export class TuiController {
       this.handleInputKey(key);
       return;
     }
-    if (key === "\u0003" || key === "q") {
+    if (this.keybindings.matches(key, "quit")) {
       this.close();
       return;
     }
-    if (key === "?") {
+    if (this.keybindings.matches(key, "help")) {
       this.state.modal = this.state.modal === "help" ? null : "help";
       this.render();
       return;
@@ -129,17 +140,17 @@ export class TuiController {
   }
 
   private handleInputKey(key: string): void {
-    if (key === "\x1b") {
+    if (this.keybindings.matches(key, "inputCancel")) {
       this.state.inputMode = false;
       this.state.inputValue = "";
       this.render();
       return;
     }
-    if (key === "\r") {
+    if (this.keybindings.matches(key, "inputConfirm")) {
       this.state.inputCallback?.(this.state.inputValue);
       return;
     }
-    if (key === "\x7f") {
+    if (this.keybindings.matches(key, "inputBackspace")) {
       this.state.inputValue = this.state.inputValue.slice(0, -1);
       this.render();
       return;
@@ -170,31 +181,30 @@ export class TuiController {
   }
 
   private handleSearchKey(key: string): void {
-    if (key === "\x1b" || key === "/") {
-      // Esc 或 / 关闭搜索
+    if (this.keybindings.matches(key, "searchClose")) {
       this.state.modal = null;
       this.state.searchQuery = "";
       this.render();
       return;
     }
-    if (key === "\t") {
+    if (this.keybindings.matches(key, "searchToggleMode")) {
       this.state.searchMode = this.state.searchMode === "topics" ? "users" : "topics";
       this.state.searchResults = [];
       this.state.itemIndex = 0;
       this.render();
       return;
     }
-    if ((key === "j" || key === "\x1b[B") && this.state.searchResults.length > 0) {
+    if (this.keybindings.matches(key, "searchNext") && this.state.searchResults.length > 0) {
       this.state.itemIndex = Math.min(this.state.searchResults.length - 1, this.state.itemIndex + 1);
       this.render();
       return;
     }
-    if ((key === "k" || key === "\x1b[A") && this.state.searchResults.length > 0) {
+    if (this.keybindings.matches(key, "searchPrev") && this.state.searchResults.length > 0) {
       this.state.itemIndex = Math.max(0, this.state.itemIndex - 1);
       this.render();
       return;
     }
-    if (key === "\r") {
+    if (this.keybindings.matches(key, "searchExecute")) {
       const selected = this.state.searchResults[this.state.itemIndex];
       if (selected) {
         // 有选中项：打开
@@ -250,23 +260,22 @@ export class TuiController {
   }
 
   private handleMenuKey(key: string): void {
-    if (key === "j" || key === "\x1b[B") {
+    if (this.keybindings.matches(key, "menuNext")) {
       this.state.menuIndex = Math.min(Math.max(0, this.state.menuItems.length - 1), this.state.menuIndex + 1);
       this.render();
       return;
     }
-    if (key === "k" || key === "\x1b[A") {
+    if (this.keybindings.matches(key, "menuPrev")) {
       this.state.menuIndex = Math.max(0, this.state.menuIndex - 1);
       this.render();
       return;
     }
-    if (key === "\x1b" || key === "o") {
-      // Esc 或 o 关闭菜单
+    if (this.keybindings.matches(key, "menuClose")) {
       this.state.modal = null;
       this.render();
       return;
     }
-    if (key === "\r" || key === "l") {
+    if (this.keybindings.matches(key, "menuExecute")) {
       // Enter 或 l 执行选中项
       const selected = this.state.menuItems[this.state.menuIndex];
       this.state.modal = null;
@@ -277,77 +286,130 @@ export class TuiController {
   }
 
   private handleTopicKey(key: string): void {
+    // 数字输入：收集跳转目标
     if (/^\d$/.test(key) && this.state.topic) {
       this.state.topic.floorInput = `${this.state.topic.floorInput}${key}`.slice(0, 6);
-      this.state.status = `跳转到 ${this.state.topic.floorInput} 楼：Enter 确认  Esc 取消`;
+      this.state.status = `输入: ${this.state.topic.floorInput}`;
       this.render();
       return;
     }
+    // 退格：删除输入
     if (key === "\x7f" && this.state.topic?.floorInput) {
       this.state.topic.floorInput = this.state.topic.floorInput.slice(0, -1);
-      this.state.status = this.state.topic.floorInput ? `跳转到 ${this.state.topic.floorInput} 楼：Enter 确认  Esc 取消` : getStatus(this.state);
+      this.state.status = this.state.topic.floorInput ? `输入: ${this.state.topic.floorInput}` : getStatus(this.state);
       this.render();
       return;
     }
-    if (key === "\r" && this.state.topic?.floorInput) {
+    // g：跳页
+    if (key === "g" && this.state.topic?.floorInput) {
+      const page = Number(this.state.topic.floorInput);
+      this.state.topic.jumpTarget = { type: "page", value: page };
+      this.state.topic.floorInput = "";
+      this.state.status = `跳转到第 ${page} 页？Enter 确认  Esc 取消`;
+      this.render();
+      return;
+    }
+    // G：跳楼
+    if (key === "G" && this.state.topic?.floorInput) {
       const floor = Number(this.state.topic.floorInput);
+      this.state.topic.jumpTarget = { type: "floor", value: floor };
       this.state.topic.floorInput = "";
-      if (Number.isInteger(floor) && floor > 0) void this.jumpToTopicFloor(floor, this.nextSignal());
-      return;
-    }
-    if ((key === "]" || key === "】") && this.state.topic) {
-      this.state.scroll = jumpRelativeTopicFloor(this.state.topic, this.state.scroll, 1);
-      this.state.status = getStatus(this.state);
+      this.state.status = `跳转到第 ${floor} 楼？Enter 确认  Esc 取消`;
       this.render();
       return;
     }
-    if ((key === "[" || key === "【") && this.state.topic) {
-      this.state.scroll = jumpRelativeTopicFloor(this.state.topic, this.state.scroll, -1);
-      this.state.status = getStatus(this.state);
+    // G（无数字）：跳到最后一页
+    if (key === "G" && !this.state.topic?.floorInput && this.state.topic) {
+      const pageInfo = getTopicPageInfo(this.state.topic, this.state.scroll);
+      this.state.topic.jumpTarget = { type: "page", value: pageInfo.totalPages };
+      this.state.status = `跳转到最后一页（第 ${pageInfo.totalPages} 页）？Enter 确认  Esc 取消`;
       this.render();
       return;
     }
-    if (key === "\x1b" && this.state.topic?.floorInput) {
-      this.state.topic.floorInput = "";
-      this.state.status = getStatus(this.state);
-      this.render();
-      return;
-    }
-    if (key === "h" || key === "\x1b[D" || key === "\x1b") {
-      this.leave();
-      return;
-    }
-    if (key === "j" || key === "\x1b[B") {
-      const maxScroll = Math.max(0, (this.state.topic?.lines.length ?? 0) - 1);
-      const wasAtEnd = this.state.scroll >= maxScroll;
-      this.state.scroll = Math.min(maxScroll, this.state.scroll + 1);
-      this.render();
-      if (wasAtEnd && this.state.topic?.hasMore && !this.state.loadingMore) {
-        void this.loadNextTopicPage(this.nextSignal(), true);
+    // Enter：确认跳转
+    if (key === "\r" && this.state.topic?.jumpTarget) {
+      const target = this.state.topic.jumpTarget;
+      this.state.topic.jumpTarget = undefined;
+      if (target.type === "page") {
+        void this.jumpToTopicPage(target.value, this.nextSignal());
+      } else {
+        void this.jumpToTopicFloor(target.value, this.nextSignal());
       }
       return;
     }
-    if (key === "k" || key === "\x1b[A") {
-      this.state.scroll = Math.max(0, this.state.scroll - 1);
+    // Esc：取消跳转
+    if (key === "\x1b" && (this.state.topic?.floorInput || this.state.topic?.jumpTarget)) {
+      this.state.topic.floorInput = "";
+      this.state.topic.jumpTarget = undefined;
+      this.state.status = getStatus(this.state);
       this.render();
       return;
     }
-    if (key === "n" || key === " ") {
-      void this.loadNextTopicPage(this.nextSignal());
+    // ]：下一层
+    if (this.keybindings.matches(key, "topicNextFloor") && this.state.topic) {
+      this.state.scroll = jumpRelativeTopicFloor(this.state.topic, this.state.scroll, 1);
+      this.state.status = this.getTopicStatus();
+      this.render();
+      void this.checkAutoLoad();
       return;
     }
-    if (key === "r" && this.state.topic) {
+    // [：上一层
+    if (this.keybindings.matches(key, "topicPrevFloor") && this.state.topic) {
+      this.state.scroll = jumpRelativeTopicFloor(this.state.topic, this.state.scroll, -1);
+      this.state.status = this.getTopicStatus();
+      this.render();
+      return;
+    }
+    // }：下一页
+    if (this.keybindings.matches(key, "topicNextPage") && this.state.topic) {
+      void this.jumpToNextPage();
+      return;
+    }
+    // {：上一页
+    if (this.keybindings.matches(key, "topicPrevPage") && this.state.topic) {
+      void this.jumpToPrevPage();
+      return;
+    }
+    // h/Esc：返回
+    if (this.keybindings.matches(key, "back")) {
+      this.leave();
+      return;
+    }
+    // j：下移
+    if (this.keybindings.matches(key, "topicScrollDown")) {
+      const maxScroll = Math.max(0, (this.state.topic?.lines.length ?? 0) - 1);
+      this.state.scroll = Math.min(maxScroll, this.state.scroll + 1);
+      this.state.status = this.getTopicStatus();
+      this.render();
+      void this.checkAutoLoad();
+      return;
+    }
+    // k：上移
+    if (this.keybindings.matches(key, "topicScrollUp")) {
+      this.state.scroll = Math.max(0, this.state.scroll - 1);
+      this.state.status = this.getTopicStatus();
+      this.render();
+      return;
+    }
+    // r：刷新
+    if (this.keybindings.matches(key, "topicRefresh") && this.state.topic) {
       void this.openTopic(this.state.topic.topicId, true, this.nextSignal());
       return;
     }
-    if (key === "s") void this.toggleFavorite();
-    if (key === "l") void this.reactToCurrentPost(true);
-    if (key === "d") void this.reactToCurrentPost(false);
-    if (key === "u") void this.showCurrentUser(this.nextSignal());
-    if (key === "v") void this.showTopicVote(this.nextSignal());
-    if (key === "a") void this.showPostReactionState(this.nextSignal());
-    if (key === "o") {
-      // 如果当前行是图片行，打开图片；否则打开菜单
+    // s：收藏
+    if (this.keybindings.matches(key, "topicFavorite")) void this.toggleFavorite();
+    // l：点赞
+    if (this.keybindings.matches(key, "topicLike")) void this.reactToCurrentPost(true);
+    // d：踩
+    if (this.keybindings.matches(key, "topicDislike")) void this.reactToCurrentPost(false);
+    // u：查看用户
+    if (this.keybindings.matches(key, "topicUser")) void this.showCurrentUser(this.nextSignal());
+    // v：查看投票
+    if (this.keybindings.matches(key, "topicVote")) void this.showTopicVote(this.nextSignal());
+    // a：查看评价
+    if (this.keybindings.matches(key, "topicReaction")) void this.showPostReactionState(this.nextSignal());
+    // o：打开图片/菜单
+    if (this.keybindings.matches(key, "topicOpenImage")) {
       const currentLine = this.getCurrentTopicLine();
       if (currentLine?.kind === "image" && currentLine.imageUrl) {
         void this.openImage(currentLine.imageUrl);
@@ -355,8 +417,8 @@ export class TuiController {
         this.openMenu();
       }
     }
-    if (key === "c") {
-      // 复制图片链接
+    // c：复制链接
+    if (this.keybindings.matches(key, "topicCopyLink")) {
       const currentLine = this.getCurrentTopicLine();
       if (currentLine?.kind === "image" && currentLine.imageUrl) {
         void this.copyToClipboard(currentLine.imageUrl);
@@ -367,40 +429,40 @@ export class TuiController {
   }
 
   private handleSettingsKey(key: string): void {
-    if (key === "j" || key === "\x1b[B") {
+    if (this.keybindings.matches(key, "moveDown")) {
       this.state.itemIndex = Math.min(settingsItems.length - 1, this.state.itemIndex + 1);
       this.render();
       return;
     }
-    if (key === "k" || key === "\x1b[A") {
+    if (this.keybindings.matches(key, "moveUp")) {
       this.state.itemIndex = Math.max(0, this.state.itemIndex - 1);
       this.render();
       return;
     }
-    if (key === "h" || key === "\x1b[D" || key === "\x1b") {
+    if (this.keybindings.matches(key, "back")) {
       this.state.mode = "list";
       this.state.focus = "nav";
       this.state.status = getStatus(this.state);
       this.render();
       return;
     }
-    if (key === "l" || key === "\x1b[C" || key === "\r") {
+    if (this.keybindings.matches(key, "confirm") || this.keybindings.matches(key, "moveRight")) {
       void this.activateSetting(settingsItems[this.state.itemIndex]);
     }
   }
 
   private handleNavKey(key: string): void {
-    if (key === "j" || key === "\x1b[B") {
+    if (this.keybindings.matches(key, "moveDown")) {
       this.state.navIndex = Math.min(navItems.length - 1, this.state.navIndex + 1);
       void this.load();
       return;
     }
-    if (key === "k" || key === "\x1b[A") {
+    if (this.keybindings.matches(key, "moveUp")) {
       this.state.navIndex = Math.max(0, this.state.navIndex - 1);
       void this.load();
       return;
     }
-    if (key === "l" || key === "\x1b[C" || key === "\r") {
+    if (this.keybindings.matches(key, "confirm") || this.keybindings.matches(key, "moveRight")) {
       if (!this.state.loading && this.state.items.length > 0) {
         if (navItems[this.state.navIndex]?.id === "settings") this.state.mode = "settings";
         this.state.focus = "content";
@@ -410,25 +472,25 @@ export class TuiController {
       }
       return;
     }
-    if (key === "r") void this.load(true);
+    if (this.keybindings.matches(key, "refresh")) void this.load(true);
   }
 
   private handleContentKey(key: string): void {
-    if (key === "j" || key === "\x1b[B") {
+    if (this.keybindings.matches(key, "listNext")) {
       this.state.itemIndex = Math.min(Math.max(0, this.state.items.length - 1), this.state.itemIndex + 1);
       this.render();
       return;
     }
-    if (key === "k" || key === "\x1b[A") {
+    if (this.keybindings.matches(key, "listPrev")) {
       this.state.itemIndex = Math.max(0, this.state.itemIndex - 1);
       this.render();
       return;
     }
-    if (key === "h" || key === "\x1b[D" || key === "\x1b") {
+    if (this.keybindings.matches(key, "listBack")) {
       this.leave();
       return;
     }
-    if (key === "l" || key === "\x1b[C" || key === "\r") {
+    if (this.keybindings.matches(key, "listOpen")) {
       const selected = this.state.items[this.state.itemIndex];
       if (selected) {
         void this.activateContentItem(selected, this.nextSignal());
@@ -438,13 +500,9 @@ export class TuiController {
       }
       return;
     }
-    if ((key === "n" || key === " ") && this.state.currentChat) {
-      void this.loadNextChatPage(this.nextSignal());
-      return;
-    }
-    if (key === "r") void this.refresh();
-    if (key === "/") this.openSearch();
-    if (key === "o") this.openMenu();
+    if (this.keybindings.matches(key, "listRefresh")) void this.refresh();
+    if (this.keybindings.matches(key, "search")) this.openSearch();
+    if (this.keybindings.matches(key, "menu")) this.openMenu();
   }
 
   private leave(): void {
@@ -669,6 +727,10 @@ export class TuiController {
       this.render();
       return;
     }
+    if (selected.meta === "keybindings") {
+      void this.openKeybindingEditor();
+      return;
+    }
     if (selected.meta === "cache") {
       this.state.status = "正在清理缓存...";
       this.render();
@@ -815,6 +877,72 @@ export class TuiController {
       this.state.loadingMore = false;
       this.render();
     }
+  }
+
+  private getTopicStatus(): string {
+    const topic = this.state.topic;
+    if (!topic) return "";
+    const pageInfo = getTopicPageInfo(topic, this.state.scroll);
+    const loading = this.state.loadingMore ? " · 加载中" : "";
+    return `${pageInfo.currentPage}/${pageInfo.totalPages} 页  ${pageInfo.currentFloor}/${pageInfo.totalFloors} 楼${loading}`;
+  }
+
+  private async checkAutoLoad(): Promise<void> {
+    const topic = this.state.topic;
+    if (!topic?.hasMore || this.state.loadingMore) return;
+    // 当滚动到倒数第 3 行时，自动加载下一页
+    const remaining = topic.lines.length - this.state.scroll;
+    if (remaining <= 3) {
+      void this.loadNextTopicPage(this.nextSignal(), true);
+    }
+  }
+
+  private async jumpToNextPage(): Promise<void> {
+    const topic = this.state.topic;
+    if (!topic) return;
+    const pageInfo = getTopicPageInfo(topic, this.state.scroll);
+    if (pageInfo.currentPage < pageInfo.totalPages) {
+      this.state.scroll = jumpToPage(topic, pageInfo.currentPage + 1);
+      this.state.status = this.getTopicStatus();
+      this.render();
+      void this.checkAutoLoad();
+    } else if (topic.hasMore && !this.state.loadingMore) {
+      // 当前是最后一页，但还有更多内容，加载下一页
+      await this.loadNextTopicPage(this.nextSignal());
+      const newPageInfo = getTopicPageInfo(topic, this.state.scroll);
+      this.state.scroll = jumpToPage(topic, newPageInfo.currentPage + 1);
+      this.state.status = this.getTopicStatus();
+      this.render();
+    }
+  }
+
+  private async jumpToPrevPage(): Promise<void> {
+    const topic = this.state.topic;
+    if (!topic) return;
+    const pageInfo = getTopicPageInfo(topic, this.state.scroll);
+    if (pageInfo.currentPage > 1) {
+      this.state.scroll = jumpToPage(topic, pageInfo.currentPage - 1);
+      this.state.status = this.getTopicStatus();
+      this.render();
+    }
+  }
+
+  private async jumpToTopicPage(page: number, signal: AbortSignal): Promise<void> {
+    const topic = this.state.topic;
+    if (!topic) return;
+    // 如果目标页未加载，需要加载到该页
+    const targetFloor = (page - 1) * FLOORS_PER_PAGE + 1;
+    while (topic.hasMore && !findTopicPostByFloor(topic, targetFloor)) {
+      await this.loadNextTopicPage(signal, true);
+    }
+    const post = findTopicPostByFloor(topic, targetFloor);
+    if (post) {
+      this.state.scroll = post.lineStart;
+      this.state.status = this.getTopicStatus();
+    } else {
+      this.state.status = `未找到第 ${page} 页`;
+    }
+    this.render();
   }
 
   private async loadNextTopicPage(signal: AbortSignal, quiet = false): Promise<void> {
@@ -1146,6 +1274,38 @@ export class TuiController {
     } catch (error) {
       this.state.status = error instanceof Error ? error.message : "签到失败";
     }
+    this.render();
+  }
+
+  private async openKeybindingEditor(): Promise<void> {
+    // 显示快捷键配置信息
+    const config = this.keybindings.getConfig();
+    const lines: string[] = [
+      "快捷键配置文件: ~/.cc98-cli/keybindings.json",
+      "",
+      "当前配置:"
+    ];
+    
+    // 显示主要快捷键
+    const mainActions = [
+      "moveUp", "moveDown", "moveLeft", "moveRight", "confirm", "back",
+      "search", "refresh", "menu", "help", "quit",
+      "topicNextPage", "topicPrevPage", "topicNextFloor", "topicPrevFloor",
+      "topicJumpPage", "topicJumpFloor", "topicJumpLast"
+    ];
+    
+    for (const action of mainActions) {
+      const keys = config[action] ?? [];
+      const desc = this.keybindings.getActionDescription(action as any);
+      const keyStr = keys.map(k => this.keybindings.formatKey(k)).join("/");
+      lines.push(`  ${desc}: ${keyStr}`);
+    }
+    
+    lines.push("", "编辑配置文件后重启生效。", "", "按 Esc 返回设置");
+    
+    this.state.modal = "info";
+    this.state.infoTitle = "快捷键设置";
+    this.state.infoLines = lines;
     this.render();
   }
 

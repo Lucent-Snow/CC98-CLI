@@ -28,7 +28,8 @@ export function buildTopicReader(topicId: number, topic: Record<string, unknown>
     hasMore: posts.length >= size,
     imageCount: rendered.imageCount,
     linkCount: rendered.linkCount,
-    floorInput: ""
+    floorInput: "",
+    jumpTarget: undefined
   };
 }
 
@@ -67,6 +68,42 @@ export function jumpRelativeTopicFloor(topic: TopicReaderState, scroll: number, 
   }
   const next = findTopicPostByFloor(topic, (current.floor ?? 1) + delta);
   return next?.lineStart ?? scroll;
+}
+
+// 页码相关常量
+export const FLOORS_PER_PAGE = 10;
+
+export interface TopicPageInfo {
+  currentPage: number;
+  totalPages: number;
+  currentFloor: number;
+  totalFloors: number;
+}
+
+export function getTopicPageInfo(topic: TopicReaderState, scroll: number): TopicPageInfo {
+  const current = currentTopicPost(topic, scroll);
+  const currentFloor = current?.floor ?? 1;
+  const totalFloors = topic.posts.length > 0 ? topic.posts[topic.posts.length - 1].floor ?? topic.posts.length : 0;
+  const currentPage = Math.ceil(currentFloor / FLOORS_PER_PAGE);
+  const totalPages = Math.ceil(totalFloors / FLOORS_PER_PAGE);
+  return { currentPage, totalPages, currentFloor, totalFloors };
+}
+
+export function jumpToPage(topic: TopicReaderState, page: number): number {
+  const targetFloor = (page - 1) * FLOORS_PER_PAGE + 1;
+  const post = findTopicPostByFloor(topic, targetFloor);
+  return post?.lineStart ?? 0;
+}
+
+export function jumpToFloor(topic: TopicReaderState, floor: number): number {
+  const post = findTopicPostByFloor(topic, floor);
+  return post?.lineStart ?? 0;
+}
+
+export function jumpToLastPage(topic: TopicReaderState): number {
+  const totalFloors = topic.posts.length > 0 ? topic.posts[topic.posts.length - 1].floor ?? topic.posts.length : 0;
+  const lastPage = Math.ceil(totalFloors / FLOORS_PER_PAGE);
+  return jumpToPage(topic, lastPage);
 }
 
 export function lineKindLabel(kind: TopicLineEntry["kind"]): string {
