@@ -1,5 +1,19 @@
 # Changelog
 
+## v0.4.2 - 2026-05-29
+
+这次更新修复了 v0.4.1 发布流程中的 npm 2FA 自动发布问题，并整理 0.4.x 的发布说明来源。
+
+### 改进
+
+- GitHub Actions 发布流程改用 npm Trusted Publishing，支持通过 OIDC 自动发布 npm 包并附带 provenance。
+- GitHub Release 正文改为从 `CHANGELOG.md` 中对应版本段落生成，确保发布页内容和项目变更记录一致。
+
+### 发布说明
+
+- 推送 `v0.4.2` tag 后会自动执行类型检查、npm 发布和 GitHub Release 创建。
+- 需要在 npm 包设置中将 `Lucent-Snow/CC98-CLI` 的 `release.yml` 配置为 Trusted Publisher。
+
 ## v0.4.0 - 2026-05-28
 
 这次更新增强了 WebVPN 的可靠性和会话持久化，并改进了 TUI 的帖子阅读体验。

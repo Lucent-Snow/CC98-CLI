@@ -7,6 +7,7 @@ on:
 
 permissions:
   contents: write
+  id-token: write
 
 jobs:
   release:
@@ -23,10 +24,23 @@ jobs:
 
       - run: npm run check
 
-      - run: npm publish
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      - run: npm publish --provenance
+
+      - name: Build release notes
+        run: |
+          node - <<'NODE'
+          const fs = require('node:fs');
+          const tag = process.env.GITHUB_REF_NAME ?? '';
+          const changelog = fs.readFileSync('CHANGELOG.md', 'utf8');
+          const escaped = tag.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+          const pattern = new RegExp(`(?:^|\\n)## ${escaped}[^\n]*\n([\\s\\S]*?)(?=\\n## v|$)`);
+          const match = changelog.match(pattern);
+          if (!match) {
+            throw new Error(`No CHANGELOG section found for ${tag}`);
+          }
+          fs.writeFileSync('.release-notes.md', match[1].trim() + '\n');
+          NODE
 
       - uses: softprops/action-gh-release@v2
         with:
-          generate_release_notes: true
+          body_path: .release-notes.md

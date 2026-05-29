@@ -1,6 +1,6 @@
 {
   "name": "cc98-cli",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "description": "A native TypeScript CLI and TUI client for CC98.",
   "type": "module",
   "bin": {
