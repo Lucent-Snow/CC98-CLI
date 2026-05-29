@@ -72,7 +72,7 @@ function getTopicStatus(state: TuiState): string {
   if (!topic) {
     return "帖子阅读";
   }
-  const pageInfo = getTopicPageInfo(topic, state.scroll);
+  const pageInfo = getTopicPageInfo(topic, topic.cursorLine);
   const loading = state.loadingMore ? " · 加载中" : "";
   return `${pageInfo.currentPage}/${pageInfo.totalPages} 页  ${pageInfo.currentFloor}/${pageInfo.totalFloors} 楼${loading}`;
 }

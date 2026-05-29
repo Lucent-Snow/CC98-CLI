@@ -3,7 +3,7 @@
 import type { TuiState } from "../state/types.js";
 import type { Component } from "./types.js";
 import { ansi, bg, fg } from "../ansi.js";
-import { fit, blank } from "./utils.js";
+import { fit, blank, cellWidth } from "./utils.js";
 
 const cc98Blue = fg(0, 130, 202);
 const cc98BlueSoft = fg(94, 180, 232);
@@ -126,19 +126,29 @@ export class Content implements Component {
 
     const viewport = Math.max(0, height - rows.length - 1);
     const maxScroll = Math.max(0, topic.lines.length - viewport);
-    state.scroll = Math.min(state.scroll, maxScroll);
+    const maxCursor = Math.max(0, topic.lines.length - 1);
+    topic.viewportRows = viewport;
+    topic.cursorLine = Math.min(maxCursor, Math.max(0, topic.cursorLine));
+
+    state.scroll = Math.min(maxScroll, topic.cursorLine);
+
     const body = topic.lines.slice(state.scroll, state.scroll + viewport);
 
-    for (const bodyLine of body) {
+    for (let offset = 0; offset < body.length; offset += 1) {
+      const bodyLine = body[offset] ?? "";
+      const lineIndex = state.scroll + offset;
+      const isCursor = lineIndex === topic.cursorLine;
+      let renderedLine: string;
       if (bodyLine.startsWith("[image ")) {
-        rows.push(fit(`${cc98BlueSoft}${bodyLine}${ansi.reset}`, width));
+        renderedLine = `${cc98BlueSoft}${bodyLine}${ansi.reset}`;
       } else if (bodyLine.startsWith("│ ")) {
-        rows.push(fit(`${muted}${bodyLine}${ansi.reset}`, width));
+        renderedLine = `${muted}${bodyLine}${ansi.reset}`;
       } else if (/^#\d+ /.test(bodyLine)) {
-        rows.push(fit(`${ok}${bodyLine}${ansi.reset}`, width));
+        renderedLine = `${ok}${bodyLine}${ansi.reset}`;
       } else {
-        rows.push(fit(` ${bodyLine}`, width));
+        renderedLine = ` ${bodyLine}`;
       }
+      rows.push(this.renderTopicLine(renderedLine, width, isCursor));
     }
 
     const pageInfo = topic.hasMore
@@ -146,5 +156,16 @@ export class Content implements Component {
       : `已载入 ${topic.loaded} 楼，已到底`;
     rows.push(fit(`${muted}${pageInfo}${state.loadingMore ? " · 加载中" : ""}${ansi.reset}`, width));
     return rows.concat(blank(height - rows.length, width)).slice(0, height);
+  }
+
+  private renderTopicLine(value: string, width: number, isCursor: boolean): string {
+    if (!isCursor) {
+      return fit(value, width);
+    }
+    const marker = `${ok}${ansi.bold}▶${ansi.reset}`;
+    const contentWidth = Math.max(0, width - 1);
+    const fitted = fit(value, contentWidth);
+    const padding = Math.max(0, contentWidth - cellWidth(fitted));
+    return `${fitted}${" ".repeat(padding)}${marker}`;
   }
 }

@@ -78,6 +78,7 @@ export interface TopicReaderState {
   size: number;
   totalFloors: number;
   viewportRows: number;
+  cursorLine: number;
   hasMore: boolean;
   imageCount: number;
   linkCount: number;

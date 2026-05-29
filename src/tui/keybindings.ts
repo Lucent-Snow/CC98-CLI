@@ -73,7 +73,7 @@ export const DEFAULT_KEYBINDINGS: KeybindingConfig = {
   moveLeft: ["h", "\x1b[D"],
   moveRight: ["l", "\x1b[C"],
   confirm: ["\r"],
-  back: ["\x1b"],
+  back: ["h", "\x1b[D", "\x1b"],
   // 全局
   search: ["/"],
   refresh: ["r"],

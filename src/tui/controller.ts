@@ -32,11 +32,8 @@ import {
   buildTopicReader,
   currentTopicPost,
   findTopicPostByFloor,
-  jumpRelativeTopicFloor,
   getTopicPageInfo,
   jumpToPage,
-  jumpToFloor,
-  jumpToLastPage,
   FLOORS_PER_PAGE
 } from "./topic-reader.js";
 
@@ -185,8 +182,8 @@ export class TuiController {
       return;
     }
     if (this.state.modal === "info") {
-      // 如果有确认回调，Enter 执行回调，Esc 关闭
-      if (this.state.confirmCallback && key === "\r") {
+      // 如果有确认回调，确认键执行回调，其它键关闭。
+      if (this.state.confirmCallback && this.keybindings.matches(key, "confirm")) {
         const callback = this.state.confirmCallback;
         this.state.confirmCallback = undefined;
         this.closeModal();
@@ -323,42 +320,43 @@ export class TuiController {
       return;
     }
     // 退格：删除输入
-    if (key === "\x7f" && this.state.topic?.floorInput) {
+    if (this.keybindings.matches(key, "inputBackspace") && this.state.topic?.floorInput) {
       this.state.topic.floorInput = this.state.topic.floorInput.slice(0, -1);
-      this.state.status = this.state.topic.floorInput ? `输入: ${this.state.topic.floorInput}` : getStatus(this.state);
+      this.state.status = this.state.topic.floorInput ? `输入: ${this.state.topic.floorInput}` : "";
       this.render();
       return;
     }
-    // g：跳页
-    if (key === "g" && this.state.topic?.floorInput) {
+    // 数字 + 跳页键：跳页
+    if (this.keybindings.matches(key, "topicJumpPage") && this.state.topic?.floorInput) {
       const page = Number(this.state.topic.floorInput);
       this.state.topic.jumpTarget = { type: "page", value: page };
       this.state.topic.floorInput = "";
-      this.state.status = `跳转到第 ${page} 页？Enter 确认  Esc 取消`;
+      this.state.status = `跳转到第 ${page} 页？${this.keybindings.formatActionKeys("confirm")} 确认  ${this.keybindings.formatActionKeys("back")} 取消`;
       this.render();
       return;
     }
-    // G：跳楼
-    if (key === "G" && this.state.topic?.floorInput) {
+    // 数字 + 跳楼键：跳楼
+    if (this.keybindings.matches(key, "topicJumpFloor") && this.state.topic?.floorInput) {
       const floor = Number(this.state.topic.floorInput);
       this.state.topic.jumpTarget = { type: "floor", value: floor };
       this.state.topic.floorInput = "";
-      this.state.status = `跳转到第 ${floor} 楼？Enter 确认  Esc 取消`;
+      this.state.status = `跳转到第 ${floor} 楼？${this.keybindings.formatActionKeys("confirm")} 确认  ${this.keybindings.formatActionKeys("back")} 取消`;
       this.render();
       return;
     }
-    // G（无数字）：跳到最后一页
-    if (key === "G" && !this.state.topic?.floorInput && this.state.topic) {
-      const pageInfo = getTopicPageInfo(this.state.topic, this.state.scroll);
+    // 跳到最后一页
+    if (this.keybindings.matches(key, "topicJumpLast") && !this.state.topic?.floorInput && this.state.topic) {
+      const pageInfo = getTopicPageInfo(this.state.topic, this.state.topic.cursorLine);
       this.state.topic.jumpTarget = { type: "page", value: pageInfo.totalPages };
-      this.state.status = `跳转到最后一页（第 ${pageInfo.totalPages} 页）？Enter 确认  Esc 取消`;
+      this.state.status = `跳转到最后一页（第 ${pageInfo.totalPages} 页）？${this.keybindings.formatActionKeys("confirm")} 确认  ${this.keybindings.formatActionKeys("back")} 取消`;
       this.render();
       return;
     }
-    // Enter：确认跳转
-    if (key === "\r" && this.state.topic?.jumpTarget) {
+    // 确认跳转
+    if (this.keybindings.matches(key, "confirm") && this.state.topic?.jumpTarget) {
       const target = this.state.topic.jumpTarget;
       this.state.topic.jumpTarget = undefined;
+      this.state.status = "";
       if (target.type === "page") {
         void this.jumpToTopicPage(target.value, this.nextSignal());
       } else {
@@ -366,27 +364,22 @@ export class TuiController {
       }
       return;
     }
-    // Esc：取消跳转
-    if (key === "\x1b" && (this.state.topic?.floorInput || this.state.topic?.jumpTarget)) {
+    // 取消跳转
+    if (this.keybindings.matches(key, "back") && (this.state.topic?.floorInput || this.state.topic?.jumpTarget)) {
       this.state.topic.floorInput = "";
       this.state.topic.jumpTarget = undefined;
-      this.state.status = getStatus(this.state);
+      this.state.status = "";
       this.render();
       return;
     }
     // ]：下一层
     if (this.keybindings.matches(key, "topicNextFloor") && this.state.topic) {
-      this.state.scroll = jumpRelativeTopicFloor(this.state.topic, this.state.scroll, 1);
-      this.state.status = this.getTopicStatus();
-      this.render();
-      void this.checkAutoLoad();
+      void this.jumpRelativeFloor(1);
       return;
     }
     // [：上一层
     if (this.keybindings.matches(key, "topicPrevFloor") && this.state.topic) {
-      this.state.scroll = jumpRelativeTopicFloor(this.state.topic, this.state.scroll, -1);
-      this.state.status = this.getTopicStatus();
-      this.render();
+      void this.jumpRelativeFloor(-1);
       return;
     }
     // }：下一页
@@ -407,16 +400,20 @@ export class TuiController {
     // j：下移
     if (this.keybindings.matches(key, "topicScrollDown")) {
       const maxScroll = Math.max(0, (this.state.topic?.lines.length ?? 0) - 1);
-      this.state.scroll = Math.min(maxScroll, this.state.scroll + 1);
-      this.state.status = this.getTopicStatus();
+      if (this.state.topic) {
+        this.state.topic.cursorLine = Math.min(maxScroll, this.state.topic.cursorLine + 1);
+      }
+      this.state.status = "";
       this.render();
       void this.checkAutoLoad();
       return;
     }
     // k：上移
     if (this.keybindings.matches(key, "topicScrollUp")) {
-      this.state.scroll = Math.max(0, this.state.scroll - 1);
-      this.state.status = this.getTopicStatus();
+      if (this.state.topic) {
+        this.state.topic.cursorLine = Math.max(0, this.state.topic.cursorLine - 1);
+      }
+      this.state.status = "";
       this.render();
       return;
     }
@@ -905,39 +902,48 @@ export class TuiController {
     }
   }
 
-  private getTopicStatus(): string {
-    const topic = this.state.topic;
-    if (!topic) return "";
-    const pageInfo = getTopicPageInfo(topic, this.state.scroll);
-    const loading = this.state.loadingMore ? " · 加载中" : "";
-    return `${pageInfo.currentPage}/${pageInfo.totalPages} 页  ${pageInfo.currentFloor}/${pageInfo.totalFloors} 楼${loading}`;
-  }
-
   private async checkAutoLoad(): Promise<void> {
     const topic = this.state.topic;
     if (!topic?.hasMore || this.state.loadingMore) return;
-    // 当滚动到倒数第 3 行时，自动加载下一页
-    const remaining = topic.lines.length - this.state.scroll;
-    if (remaining <= 3) {
+    const viewportRows = Math.max(1, topic.viewportRows);
+    const viewportBottom = this.state.scroll + viewportRows;
+    if (viewportBottom >= topic.lines.length) {
       void this.loadNextTopicPage(this.nextSignal(), true);
+    }
+  }
+
+  private async jumpRelativeFloor(delta: number): Promise<void> {
+    const topic = this.state.topic;
+    if (!topic) return;
+    const current = currentTopicPost(topic, topic.cursorLine);
+    const currentFloor = current?.floor ?? 1;
+    const targetFloor = currentFloor + delta;
+    if (targetFloor < 1) return;
+    const loaded = findTopicPostByFloor(topic, targetFloor);
+    if (loaded) {
+      topic.cursorLine = loaded.lineStart;
+      this.state.status = "";
+      this.render();
+      if (delta > 0) void this.checkAutoLoad();
+      return;
+    }
+    if (delta > 0 && topic.hasMore && !this.state.loadingMore) {
+      await this.jumpToTopicFloor(targetFloor, this.nextSignal());
     }
   }
 
   private async jumpToNextPage(): Promise<void> {
     const topic = this.state.topic;
     if (!topic) return;
-    const pageInfo = getTopicPageInfo(topic, this.state.scroll);
+    const pageInfo = getTopicPageInfo(topic, topic.cursorLine);
     if (pageInfo.currentPage < pageInfo.totalPages) {
-      this.state.scroll = jumpToPage(topic, pageInfo.currentPage + 1);
-      this.state.status = this.getTopicStatus();
-      this.render();
-      void this.checkAutoLoad();
+      await this.jumpToTopicPage(pageInfo.currentPage + 1, this.nextSignal());
     } else if (topic.hasMore && !this.state.loadingMore) {
       // 当前是最后一页，但还有更多内容，加载下一页
       await this.loadNextTopicPage(this.nextSignal());
-      const newPageInfo = getTopicPageInfo(topic, this.state.scroll);
-      this.state.scroll = jumpToPage(topic, newPageInfo.currentPage + 1);
-      this.state.status = this.getTopicStatus();
+      const newPageInfo = getTopicPageInfo(topic, topic.cursorLine);
+      topic.cursorLine = jumpToPage(topic, newPageInfo.currentPage + 1);
+      this.state.status = "";
       this.render();
     }
   }
@@ -945,10 +951,10 @@ export class TuiController {
   private async jumpToPrevPage(): Promise<void> {
     const topic = this.state.topic;
     if (!topic) return;
-    const pageInfo = getTopicPageInfo(topic, this.state.scroll);
+    const pageInfo = getTopicPageInfo(topic, topic.cursorLine);
     if (pageInfo.currentPage > 1) {
-      this.state.scroll = jumpToPage(topic, pageInfo.currentPage - 1);
-      this.state.status = this.getTopicStatus();
+      topic.cursorLine = jumpToPage(topic, pageInfo.currentPage - 1);
+      this.state.status = "";
       this.render();
     }
   }
@@ -956,15 +962,23 @@ export class TuiController {
   private async jumpToTopicPage(page: number, signal: AbortSignal): Promise<void> {
     const topic = this.state.topic;
     if (!topic) return;
+    const pageInfo = getTopicPageInfo(topic, topic.cursorLine);
+    if (page < 1 || page > pageInfo.totalPages) {
+      this.state.status = `未找到第 ${page} 页`;
+      this.render();
+      return;
+    }
     // 如果目标页未加载，需要加载到该页
     const targetFloor = (page - 1) * FLOORS_PER_PAGE + 1;
     while (topic.hasMore && !findTopicPostByFloor(topic, targetFloor)) {
+      const previousLoaded = topic.loaded;
       await this.loadNextTopicPage(signal, true);
+      if (topic.loaded === previousLoaded) break;
     }
     const post = findTopicPostByFloor(topic, targetFloor);
     if (post) {
-      this.state.scroll = post.lineStart;
-      this.state.status = this.getTopicStatus();
+      topic.cursorLine = post.lineStart;
+      this.state.status = "";
     } else {
       this.state.status = `未找到第 ${page} 页`;
     }
@@ -979,7 +993,7 @@ export class TuiController {
     try {
       const posts = asArray(await this.client.getTopicPosts(topic.topicId, topic.loaded, topic.size, false, signal));
       appendTopicPosts(topic, posts);
-      this.state.status = topic.hasMore ? "已加载下一页" : "已到底";
+      this.state.status = "";
     } catch (error) {
       if (!isAbortError(error)) this.state.status = error instanceof Error ? error.message : "加载失败";
     } finally {
@@ -993,17 +1007,19 @@ export class TuiController {
     if (!topic) return;
     const loaded = findTopicPostByFloor(topic, floor);
     if (loaded) {
-      this.state.scroll = loaded.lineStart;
-      this.state.status = getStatus(this.state);
+      topic.cursorLine = loaded.lineStart;
+      this.state.status = "";
       this.render();
       return;
     }
     while (topic.hasMore && !findTopicPostByFloor(topic, floor)) {
+      const previousLoaded = topic.loaded;
       await this.loadNextTopicPage(signal, true);
+      if (topic.loaded === previousLoaded) break;
     }
     const post = findTopicPostByFloor(topic, floor);
-    this.state.scroll = post?.lineStart ?? this.state.scroll;
-    this.state.status = post ? getStatus(this.state) : `未找到 ${floor} 楼`;
+    topic.cursorLine = post?.lineStart ?? topic.cursorLine;
+    this.state.status = post ? "" : `未找到 ${floor} 楼`;
     this.render();
   }
 
@@ -1119,7 +1135,7 @@ export class TuiController {
   private async reactToCurrentPost(isLike: boolean): Promise<void> {
     const topic = this.state.topic;
     if (!topic) return;
-    const post = currentTopicPost(topic, this.state.scroll);
+    const post = currentTopicPost(topic, topic.cursorLine);
     if (!post?.id) {
       this.state.status = "当前楼层没有可操作的帖子 ID";
       this.render();
@@ -1137,7 +1153,7 @@ export class TuiController {
   private async showCurrentUser(signal: AbortSignal): Promise<void> {
     const topic = this.state.topic;
     if (!topic) return;
-    const post = currentTopicPost(topic, this.state.scroll);
+    const post = currentTopicPost(topic, topic.cursorLine);
     if (!post?.userId) {
       this.state.status = "当前楼层没有用户 ID";
       this.render();
@@ -1190,7 +1206,7 @@ export class TuiController {
   private async showPostReactionState(signal: AbortSignal): Promise<void> {
     const topic = this.state.topic;
     if (!topic) return;
-    const post = currentTopicPost(topic, this.state.scroll);
+    const post = currentTopicPost(topic, topic.cursorLine);
     if (!post?.id) return;
     try {
       const state = await this.client.getPostReactionState(post.id, true, signal);
@@ -1236,7 +1252,7 @@ export class TuiController {
     const topic = this.state.topic;
     if (!topic) return undefined;
     for (const post of topic.posts) {
-      const line = post.lines.find((entry) => entry.line === this.state.scroll);
+      const line = post.lines.find((entry) => entry.line === topic.cursorLine);
       if (line) return line;
     }
     return undefined;
@@ -1393,7 +1409,7 @@ export class TuiController {
       "退出登录将清除所有保存的账号信息。",
       "清除后需要重新登录。",
       "",
-      "Enter 确认  Esc 取消"
+      `${this.keybindings.formatActionKeys("confirm")} 确认  ${this.keybindings.formatActionKeys("back")} 取消`
     ];
     
     this.state.modal = "info";

@@ -16,7 +16,7 @@ export function buildTopicReader(topicId: number, topic: Record<string, unknown>
     replyCount !== undefined ? `${replyCount} 回复` : undefined,
     hitCount !== undefined ? `${hitCount} 浏览` : undefined
   ].filter(Boolean).join(" · ");
-  const rendered = renderPosts(posts, 0);
+  const rendered = renderPosts(posts, 0, 0);
 
   return {
     topicId,
@@ -28,6 +28,7 @@ export function buildTopicReader(topicId: number, topic: Record<string, unknown>
     size,
     totalFloors,
     viewportRows: 0,
+    cursorLine: 0,
     hasMore: posts.length >= size,
     imageCount: rendered.imageCount,
     linkCount: rendered.linkCount,
@@ -37,7 +38,7 @@ export function buildTopicReader(topicId: number, topic: Record<string, unknown>
 }
 
 export function appendTopicPosts(topic: TopicReaderState, posts: unknown[]): void {
-  const rendered = renderPosts(posts, topic.lines.length);
+  const rendered = renderPosts(posts, topic.lines.length, topic.loaded);
   topic.lines.push(...rendered.lines);
   topic.posts.push(...rendered.posts);
   topic.loaded += posts.length;
@@ -64,15 +65,6 @@ export function findTopicPostByFloor(topic: TopicReaderState, floor: number): To
   return topic.posts.find((post) => post.floor === floor);
 }
 
-export function jumpRelativeTopicFloor(topic: TopicReaderState, scroll: number, delta: number): number {
-  const current = currentTopicPost(topic, scroll);
-  if (!current) {
-    return scroll;
-  }
-  const next = findTopicPostByFloor(topic, (current.floor ?? 1) + delta);
-  return next?.lineStart ?? scroll;
-}
-
 // 页码相关常量
 export const FLOORS_PER_PAGE = 10;
 
@@ -96,17 +88,6 @@ export function jumpToPage(topic: TopicReaderState, page: number): number {
   const targetFloor = (page - 1) * FLOORS_PER_PAGE + 1;
   const post = findTopicPostByFloor(topic, targetFloor);
   return post?.lineStart ?? 0;
-}
-
-export function jumpToFloor(topic: TopicReaderState, floor: number): number {
-  const post = findTopicPostByFloor(topic, floor);
-  return post?.lineStart ?? 0;
-}
-
-export function jumpToLastPage(topic: TopicReaderState): number {
-  const totalFloors = topic.posts.length > 0 ? topic.posts[topic.posts.length - 1].floor ?? topic.posts.length : 0;
-  const lastPage = Math.ceil(totalFloors / FLOORS_PER_PAGE);
-  return jumpToPage(topic, lastPage);
 }
 
 export function lineKindLabel(kind: TopicLineEntry["kind"]): string {
@@ -143,7 +124,7 @@ function parseLinkIndex(value: string): number | undefined {
   return inline ? Number(inline[1]) : undefined;
 }
 
-function renderPosts(posts: unknown[], lineOffset: number): {
+function renderPosts(posts: unknown[], lineOffset: number, floorOffset: number): {
   lines: string[];
   posts: TopicPostEntry[];
   imageCount: number;
@@ -156,7 +137,7 @@ function renderPosts(posts: unknown[], lineOffset: number): {
 
   for (const post of posts) {
     const obj = asObject(post);
-    const floor = asNumber(obj.floor) ?? entries.length + 1;
+    const floor = asNumber(obj.floor) ?? floorOffset + entries.length + 1;
     const author = String(obj.userName ?? asObject(obj.user).name ?? "匿名");
     const time = typeof obj.time === "string" ? obj.time.replace("T", " ").slice(0, 16) : "";
     const content = String(obj.content ?? "");

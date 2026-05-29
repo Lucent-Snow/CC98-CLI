@@ -3,6 +3,7 @@ import { Header, Overview, Sidebar, Content, StatusBar, fit, blank } from "./com
 import { navItems } from "./navigation.js";
 import type { TopicReaderState, TuiState } from "./state/types.js";
 import { currentTopicLine, currentTopicPost, lineKindLabel } from "./topic-reader.js";
+import { getKeybindingManager, type KeybindingAction } from "./keybindings.js";
 import { BOX_ROUNDED } from "./borders.js";
 
 const cc98Blue = fg(0, 130, 202);
@@ -19,6 +20,7 @@ const overview = new Overview();
 const sidebar = new Sidebar();
 const content = new Content();
 const statusBar = new StatusBar();
+const keybindings = getKeybindingManager();
 
 export function draw(state: TuiState, size: { columns: number; rows: number }): string {
   const width = Math.max(60, size.columns);
@@ -86,7 +88,7 @@ export function draw(state: TuiState, size: { columns: number; rows: number }): 
   }
 
   const sidebarLines = sidebar.render(state, sidebarWidth, bodyHeight);
-  const mainLines = content.render(state, mainWidth, bodyHeight);
+  const mainLines = content.render(state, mainWidth - 2, bodyHeight);
   const rightLines = rightWidth > 0 ? drawRight(state, rightWidth, bodyHeight) : [];
 
   for (let row = 0; row < bodyHeight; row += 1) {
@@ -146,7 +148,7 @@ export function draw(state: TuiState, size: { columns: number; rows: number }): 
 
 function drawRight(state: TuiState, width: number, height: number): string[] {
   if (state.mode === "topic" && state.topic) {
-    return drawTopicRight(state.topic, state.scroll, width, height);
+    return drawTopicRight(state.topic, state.topic.cursorLine, width, height);
   }
   // 新版本更新通知（首次显示）
   if (state.updateAvailable?.isNew) {
@@ -253,16 +255,20 @@ function drawHelpModal(baseLines: string[], width: number, height: number): stri
   return overlay(baseLines, width, height, Math.min(60, width - 4), [
     `${cc98Blue}${ansi.bold}快捷键帮助${ansi.reset}`,
     "",
-    "导航: j/k ↑↓ 移动  h ← 返回  Enter 打开",
-    "全局: / 搜索  r 刷新  o 菜单  ? 帮助  q 退出",
-    "帖子: j/k 滚动  {/} 翻页  [/] 楼层",
-    "帖子: 数字+g 跳页  数字+G 跳楼  G 最后",
-    "帖子: s 收藏  l 赞  d 踩  u 用户",
-    "搜索: j/k ↑↓ 移动  Enter 搜索/打开  Tab 切换",
-    "菜单: j/k ↑↓ 移动  Enter 执行  o 关闭",
+    `导航: ${keys("moveDown")}/${keys("moveUp")} 移动  ${keys("back")} 返回  ${keys("confirm")} 打开`,
+    `全局: ${keys("search")} 搜索  ${keys("refresh")} 刷新  ${keys("menu")} 菜单  ${keys("help")} 帮助  ${keys("quit")} 退出`,
+    `帖子: ${keys("topicScrollDown")}/${keys("topicScrollUp")} 滚动  ${keys("topicNextPage")}/${keys("topicPrevPage")} 翻页  ${keys("topicNextFloor")}/${keys("topicPrevFloor")} 楼层`,
+    `帖子: 数字+${keys("topicJumpPage")} 跳页  数字+${keys("topicJumpFloor")} 跳楼  ${keys("topicJumpLast")} 最后`,
+    `帖子: ${keys("topicFavorite")} 收藏  ${keys("topicLike")} 赞  ${keys("topicDislike")} 踩  ${keys("topicUser")} 用户`,
+    `搜索: ${keys("searchNext")}/${keys("searchPrev")} 移动  ${keys("searchExecute")} 搜索/打开  ${keys("searchToggleMode")} 切换`,
+    `菜单: ${keys("menuNext")}/${keys("menuPrev")} 移动  ${keys("menuExecute")} 执行  ${keys("menuClose")} 关闭`,
     "",
     `${muted}任意键关闭${ansi.reset}`
   ]);
+}
+
+function keys(action: KeybindingAction): string {
+  return keybindings.formatActionKeys(action);
 }
 
 function drawMenuModal(baseLines: string[], state: TuiState, width: number, height: number): string {
@@ -281,7 +287,7 @@ function drawInfoModal(baseLines: string[], state: TuiState, width: number, heig
     "",
     ...state.infoLines.slice(0, Math.max(1, height - 8)),
     "",
-    `${muted}Esc / Enter 关闭${ansi.reset}`
+    `${muted}${keys("back")} / ${keys("confirm")} 关闭${ansi.reset}`
   ]);
 }
 
