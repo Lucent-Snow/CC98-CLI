@@ -2,6 +2,7 @@ import { checkForUpdate } from "../update.js";
 import { appVersion } from "../version.js";
 import type { TokenStore } from "../storage/token-store.js";
 import { getImageCache } from "../storage/image-cache.js";
+import { SettingsStore } from "../storage/settings-store.js";
 import type { CachedCc98Client } from "./cached-client.js";
 import { getKeybindingManager, type KeybindingManager } from "./keybindings.js";
 import { navItems, settingsItems } from "./navigation.js";
@@ -46,6 +47,8 @@ type SignalFn = () => AbortSignal;
 export class TuiController {
   private loadVersion = 0;
   private readonly keybindings: KeybindingManager;
+  private readonly settingsStore = new SettingsStore();
+  private updateChecked = false;
 
   constructor(
     private readonly state: TuiState,
@@ -84,6 +87,12 @@ export class TuiController {
       // 加载快捷键配置
       await this.keybindings.load();
       this.state.account = await this.tokenStore.getCurrentAccountName();
+
+      // 异步检查更新（不阻塞主加载）
+      if (!this.updateChecked) {
+        this.updateChecked = true;
+        void this.checkUpdate();
+      }
       const next = await this.loadView(nav.id, force, signal);
       if (version !== this.loadVersion) return;
       this.state.viewTitle = next.title;
@@ -110,6 +119,15 @@ export class TuiController {
     if (this.state.inputMode) {
       this.handleInputKey(key);
       return;
+    }
+    // 关闭更新通知（Esc 或任意键）
+    if (this.state.updateAvailable?.isNew) {
+      if (key === "\x1b" || key === "\r") {
+        this.dismissUpdate();
+        return;
+      }
+      // 其他按键也关闭更新通知，继续处理原按键动作
+      this.dismissUpdate();
     }
     if (this.keybindings.matches(key, "quit")) {
       this.close();
@@ -162,8 +180,19 @@ export class TuiController {
   }
 
   private handleModalKey(key: string): void {
-    if (this.state.modal === "help" || this.state.modal === "info") {
-      // 帮助/信息弹窗：任意键关闭
+    if (this.state.modal === "help") {
+      this.closeModal();
+      return;
+    }
+    if (this.state.modal === "info") {
+      // 如果有确认回调，Enter 执行回调，Esc 关闭
+      if (this.state.confirmCallback && key === "\r") {
+        const callback = this.state.confirmCallback;
+        this.state.confirmCallback = undefined;
+        this.closeModal();
+        callback();
+        return;
+      }
       this.closeModal();
       return;
     }
@@ -732,31 +761,22 @@ export class TuiController {
       return;
     }
     if (selected.meta === "cache") {
-      this.state.status = "正在清理缓存...";
-      this.render();
-      try {
-        await this.client.clearCache();
-        this.state.status = "缓存已清理";
-        await this.load(true);
-      } catch {
-        this.state.status = "缓存清理失败";
-        this.render();
-      }
+      void this.openCacheManager();
       return;
     }
     if (selected.meta === "update") {
-      this.state.status = "正在检查 GitHub Release...";
-      this.render();
-      try {
-        const result = await checkForUpdate();
-        this.state.status = result.message;
-      } catch (error) {
-        this.state.status = error instanceof Error ? error.message : "检查更新失败";
-      }
-      this.render();
+      void this.checkUpdate(true);
       return;
     }
-    this.state.status = selected.meta === "logout" ? "退出登录功能开发中..." : "账号切换功能开发中...";
+    if (selected.meta === "account") {
+      void this.openAccountSwitcher();
+      return;
+    }
+    if (selected.meta === "logout") {
+      void this.confirmLogout();
+      return;
+    }
+    this.state.status = "功能开发中...";
     this.render();
   }
 
@@ -775,6 +795,12 @@ export class TuiController {
     }
     if (selected.userId !== undefined) {
       await this.showUserDetailById(selected.userId, signal);
+      return;
+    }
+    // 账号切换
+    if (selected.meta?.startsWith("account:")) {
+      const accountName = selected.meta.slice(8);
+      await this.switchAccount(accountName);
       return;
     }
     if (selected.action?.startsWith("notices:")) {
@@ -1309,6 +1335,127 @@ export class TuiController {
     this.render();
   }
 
+  private async openAccountSwitcher(): Promise<void> {
+    try {
+      const accounts = await this.tokenStore.listAccounts();
+      const currentAccount = await this.tokenStore.getCurrentAccountName();
+      
+      if (accounts.length === 0) {
+        this.state.modal = "info";
+        this.state.infoTitle = "切换账号";
+        this.state.infoLines = ["暂无保存的账号", "", "请先登录账号。"];  
+        this.render();
+        return;
+      }
+      
+      // 构建账号列表
+      const items: ContentItem[] = accounts.map(account => ({
+        title: account.displayName || account.username || account.account,
+        meta: `account:${account.account}`,
+        detail: `${account.account === currentAccount ? "✓ 当前" : "切换到此账号"}${account.userId ? ` · ID: ${account.userId}` : ""}`
+      }));
+      
+      this.snapshotParent();
+      this.state.viewTitle = "切换账号";
+      this.state.items = items;
+      this.state.stats = [{ title: "账号数", detail: `${accounts.length}` }];
+      this.state.itemIndex = accounts.findIndex(a => a.account === currentAccount);
+      this.state.scroll = 0;
+      this.state.focus = "content";
+      this.state.mode = "list";
+      this.state.status = "选择账号: j/k 选择  Enter 切换  h 返回";
+      this.render();
+    } catch (error) {
+      this.state.status = error instanceof Error ? error.message : "读取账号失败";
+      this.render();
+    }
+  }
+
+  private async switchAccount(accountName: string): Promise<void> {
+    try {
+      await this.tokenStore.useAccount(accountName);
+      this.state.status = `已切换到账号: ${accountName}`;
+      this.state.parentList = undefined;
+      this.state.mode = "list";
+      this.state.focus = "nav";
+      await this.load(true);
+    } catch (error) {
+      this.state.status = error instanceof Error ? error.message : "切换账号失败";
+      this.render();
+    }
+  }
+
+  private async confirmLogout(): Promise<void> {
+    const account = await this.tokenStore.getCurrentAccountName();
+    const lines = [
+      `当前账号: ${account || "未知"}`,
+      "",
+      "退出登录将清除所有保存的账号信息。",
+      "清除后需要重新登录。",
+      "",
+      "Enter 确认  Esc 取消"
+    ];
+    
+    this.state.modal = "info";
+    this.state.infoTitle = "退出登录";
+    this.state.infoLines = lines;
+    this.state.confirmCallback = () => void this.performLogout();
+    this.render();
+  }
+
+  private async performLogout(): Promise<void> {
+    try {
+      await this.tokenStore.clear();
+      this.state.status = "已退出登录";
+      this.state.parentList = undefined;
+      this.state.mode = "list";
+      this.state.focus = "nav";
+      await this.load(true);
+    } catch (error) {
+      this.state.status = error instanceof Error ? error.message : "退出失败";
+      this.render();
+    }
+  }
+
+  private async openCacheManager(): Promise<void> {
+    try {
+      const stats = await this.client.getCacheStats();
+      const cacheDir = "~/.cc98-cli/cache/";
+      
+      const lines = [
+        `缓存目录: ${cacheDir}`,
+        `文件数量: ${stats.fileCacheEntries}`,
+        "",
+        "缓存策略:",
+        "  版面主题: 30s",
+        "  版面信息: 24h",
+        "  用户信息: 5min",
+        "",
+        "Enter 清理缓存  Esc 返回"
+      ];
+      
+      this.state.modal = "info";
+      this.state.infoTitle = "缓存管理";
+      this.state.infoLines = lines;
+      this.state.confirmCallback = () => void this.clearCache();
+      this.render();
+    } catch (error) {
+      this.state.status = error instanceof Error ? error.message : "读取缓存信息失败";
+      this.render();
+    }
+  }
+
+  private async clearCache(): Promise<void> {
+    try {
+      await this.client.clearCache();
+      this.state.status = "缓存已清理";
+      await this.load(true);
+    } catch {
+      this.state.status = "缓存清理失败";
+      this.render();
+    }
+  }
+
   private async openFriendUsers(type: "follower" | "followee", signal: AbortSignal): Promise<void> {
     const ids = asArray(await this.client.getFriendIds(type, 0, 20, false, signal)).filter((id): id is number => typeof id === "number");
     const users = asArray(await this.client.getUsers(ids, false, signal));
@@ -1358,5 +1505,56 @@ export class TuiController {
     this.state.mode = "list";
     this.state.focus = "content";
     this.state.scroll = 0;
+  }
+
+  private async checkUpdate(forceShow = false): Promise<void> {
+    if (forceShow) {
+      this.state.status = "正在检查 GitHub Release...";
+      this.render();
+    }
+
+    try {
+      const result = await checkForUpdate();
+      if (!result.updateAvailable || !result.latest) {
+        this.state.updateAvailable = undefined;
+        if (forceShow) {
+          this.state.status = result.message;
+          this.render();
+        }
+        return;
+      }
+
+      const lastSeen = await this.settingsStore.getLastSeenVersion();
+      const isNew = forceShow || lastSeen !== result.latest.version;
+
+      this.state.updateAvailable = {
+        version: result.latest.version,
+        tagName: result.latest.tagName,
+        url: result.latest.url,
+        body: result.latest.body,
+        isNew
+      };
+
+      if (forceShow) {
+        this.state.status = result.message;
+      }
+      this.render();
+    } catch (error) {
+      if (forceShow) {
+        this.state.status = error instanceof Error ? error.message : "检查更新失败";
+        this.render();
+      }
+    }
+  }
+
+  dismissUpdate(): void {
+    if (this.state.updateAvailable) {
+      const version = this.state.updateAvailable.version;
+      this.state.updateAvailable = undefined;
+      this.render();
+      void this.settingsStore.setLastSeenVersion(version).catch(() => {
+        // 忽略已读状态写入失败，避免影响 TUI 操作。
+      });
+    }
   }
 }

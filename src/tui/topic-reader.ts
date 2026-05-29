@@ -10,6 +10,7 @@ export function buildTopicReader(topicId: number, topic: Record<string, unknown>
   const replyCount = asNumber(topic.replyCount);
   const hitCount = asNumber(topic.hitCount);
   const boardName = String(topic.boardName ?? "");
+  const totalFloors = Math.max(posts.length, replyCount !== undefined ? replyCount + 1 : posts.length);
   const meta = [
     boardName || undefined,
     replyCount !== undefined ? `${replyCount} 回复` : undefined,
@@ -25,6 +26,8 @@ export function buildTopicReader(topicId: number, topic: Record<string, unknown>
     posts: rendered.posts,
     loaded: posts.length,
     size,
+    totalFloors,
+    viewportRows: 0,
     hasMore: posts.length >= size,
     imageCount: rendered.imageCount,
     linkCount: rendered.linkCount,
@@ -83,9 +86,9 @@ export interface TopicPageInfo {
 export function getTopicPageInfo(topic: TopicReaderState, scroll: number): TopicPageInfo {
   const current = currentTopicPost(topic, scroll);
   const currentFloor = current?.floor ?? 1;
-  const totalFloors = topic.posts.length > 0 ? topic.posts[topic.posts.length - 1].floor ?? topic.posts.length : 0;
+  const totalFloors = Math.max(topic.totalFloors, topic.posts.length > 0 ? topic.posts[topic.posts.length - 1].floor ?? topic.posts.length : 0);
   const currentPage = Math.ceil(currentFloor / FLOORS_PER_PAGE);
-  const totalPages = Math.ceil(totalFloors / FLOORS_PER_PAGE);
+  const totalPages = Math.max(1, Math.ceil(totalFloors / FLOORS_PER_PAGE));
   return { currentPage, totalPages, currentFloor, totalFloors };
 }
 

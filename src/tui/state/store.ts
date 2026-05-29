@@ -1,6 +1,7 @@
 // 状态管理
 
 import type { TuiState } from "./types.js";
+import { getTopicPageInfo } from "../topic-reader.js";
 
 export function createInitialState(): TuiState {
   return {
@@ -29,7 +30,8 @@ export function createInitialState(): TuiState {
     inputMode: false,
     inputPrompt: "",
     inputValue: "",
-    infoLines: []
+    infoLines: [],
+    confirmCallback: undefined
   };
 }
 
@@ -49,7 +51,7 @@ export function getStatus(state: TuiState): string {
 function getDefaultStatus(state: TuiState): string {
   switch (state.mode) {
     case "topic":
-      return "帖子阅读";
+      return getTopicStatus(state);
     case "settings":
       return "设置";
     case "user-detail":
@@ -63,4 +65,14 @@ function getDefaultStatus(state: TuiState): string {
       }
       return state.focus === "nav" ? "导航" : "列表";
   }
+}
+
+function getTopicStatus(state: TuiState): string {
+  const topic = state.topic;
+  if (!topic) {
+    return "帖子阅读";
+  }
+  const pageInfo = getTopicPageInfo(topic, state.scroll);
+  const loading = state.loadingMore ? " · 加载中" : "";
+  return `${pageInfo.currentPage}/${pageInfo.totalPages} 页  ${pageInfo.currentFloor}/${pageInfo.totalFloors} 楼${loading}`;
 }

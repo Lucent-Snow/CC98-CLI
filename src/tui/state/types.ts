@@ -76,6 +76,8 @@ export interface TopicReaderState {
   posts: TopicPostEntry[];
   loaded: number;
   size: number;
+  totalFloors: number;
+  viewportRows: number;
   hasMore: boolean;
   imageCount: number;
   linkCount: number;
@@ -170,4 +172,14 @@ export interface TuiState {
   // 信息模态框状态
   infoTitle?: string;
   infoLines: string[];
+  confirmCallback?: () => void;  // 确认回调
+
+  // 更新通知状态
+  updateAvailable?: {
+    version: string;
+    tagName: string;
+    url: string;
+    body: string;
+    isNew: boolean; // 是否是新版本（首次提醒）
+  };
 }

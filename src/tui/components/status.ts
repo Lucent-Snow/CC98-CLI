@@ -16,10 +16,19 @@ export class StatusBar implements Component {
     if (state.inputMode) {
       return fit(`${cc98Blue} ${state.inputPrompt}${state.inputValue}`, width);
     }
-    const left = getStatus(state);
+    const left = this.getStatusWithUpdate(state);
     const right = this.getKeyHints(state);
     const padding = Math.max(1, width - cellWidth(left) - cellWidth(right) - 2);
     return fit(`${muted} ${left}${" ".repeat(padding)}${right} `, width);
+  }
+
+  private getStatusWithUpdate(state: TuiState): string {
+    const status = getStatus(state);
+    if (state.updateAvailable) {
+      const updateHint = `⬆ ${state.updateAvailable.tagName}`;
+      return status ? `${status}  ${updateHint}` : updateHint;
+    }
+    return status;
   }
 
   private getKeyHints(state: TuiState): string {

@@ -148,10 +148,35 @@ function drawRight(state: TuiState, width: number, height: number): string[] {
   if (state.mode === "topic" && state.topic) {
     return drawTopicRight(state.topic, state.scroll, width, height);
   }
+  // 新版本更新通知（首次显示）
+  if (state.updateAvailable?.isNew) {
+    return drawUpdateRight(state.updateAvailable, width, height);
+  }
   if (state.focus === "nav") {
     return drawNavRight(state, width, height);
   }
   return drawItemRight(state, width, height);
+}
+
+function drawUpdateRight(update: { tagName: string; url: string; body: string }, width: number, height: number): string[] {
+  const rows: string[] = [];
+  const updateFg = fg(255, 200, 50);
+  
+  rows.push(`${updateFg}${ansi.bold} ⬆ 新版本可用${ansi.reset}`);
+  rows.push(`${cc98Blue}${ansi.bold} ${update.tagName}${ansi.reset}`);
+  rows.push(`${line}${"─".repeat(Math.max(0, width - 1))}${ansi.reset}`);
+  
+  // 显示更新内容（截取前几行）
+  const bodyLines = update.body.split("\n").filter(l => l.trim()).slice(0, 6);
+  for (const lineText of bodyLines) {
+    if (rows.length >= height - 3) break;
+    rows.push(`${muted} ${lineText.slice(0, width - 4)}${ansi.reset}`);
+  }
+  
+  rows.push("");
+  rows.push(`${muted} Esc 关闭  任意键隐藏${ansi.reset}`);
+  
+  return rows.concat(blank(height - rows.length, width)).slice(0, height);
 }
 
 function drawNavRight(state: TuiState, width: number, height: number): string[] {
