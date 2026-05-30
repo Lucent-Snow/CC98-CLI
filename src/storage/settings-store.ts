@@ -4,6 +4,7 @@ import { getConfigDir } from "./paths.js";
 
 interface Settings {
   lastSeenVersion?: string;
+  autoSignin?: boolean;
 }
 
 export class SettingsStore {
@@ -22,6 +23,17 @@ export class SettingsStore {
   async setLastSeenVersion(version: string): Promise<void> {
     const settings = await this.load();
     settings.lastSeenVersion = version;
+    await this.save(settings);
+  }
+
+  async isAutoSigninEnabled(): Promise<boolean> {
+    const settings = await this.load();
+    return settings.autoSignin === true;
+  }
+
+  async setAutoSigninEnabled(enabled: boolean): Promise<void> {
+    const settings = await this.load();
+    settings.autoSignin = enabled;
     await this.save(settings);
   }
 

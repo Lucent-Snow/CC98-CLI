@@ -13,29 +13,23 @@ export function fit(value: string, width: number): string {
 
   let out = "";
   let used = 0;
-  let inEscape = false;
-
-  for (const char of value) {
-    if (char === "\x1b") {
-      inEscape = true;
-      out += char;
+  for (let index = 0; index < value.length;) {
+    if (value[index] === "\x1b") {
+      const end = findEscapeEnd(value, index);
+      out += value.slice(index, end);
+      index = end;
       continue;
     }
 
-    if (inEscape) {
-      out += char;
-      if (/[A-Za-z]/.test(char)) {
-        inEscape = false;
-      }
-      continue;
-    }
-
+    const codePoint = value.codePointAt(index);
+    const char = codePoint === undefined ? value[index] : String.fromCodePoint(codePoint);
     const charWidth = charCellWidth(char);
     if (used + charWidth > width) {
       break;
     }
     out += char;
     used += charWidth;
+    index += char.length;
   }
 
   return out;
@@ -77,4 +71,31 @@ export function charCellWidth(char: string): number {
 // 创建空白行
 export function blank(count: number, width: number): string[] {
   return Array.from({ length: count }, () => " ".repeat(width));
+}
+
+function findEscapeEnd(value: string, start: number): number {
+  const next = value[start + 1];
+  if (next === "]") {
+    const bel = value.indexOf("\x07", start + 2);
+    const st = value.indexOf("\x1b\\", start + 2);
+    return firstTerminator(value.length, bel >= 0 ? bel + 1 : -1, st >= 0 ? st + 2 : -1);
+  }
+  if (next === "_" || next === "P") {
+    const st = value.indexOf("\x1b\\", start + 2);
+    return st >= 0 ? st + 2 : value.length;
+  }
+  if (next === "[") {
+    for (let index = start + 2; index < value.length; index += 1) {
+      const code = value.charCodeAt(index);
+      if (code >= 0x40 && code <= 0x7e) {
+        return index + 1;
+      }
+    }
+  }
+  return Math.min(value.length, start + 2);
+}
+
+function firstTerminator(fallback: number, ...positions: number[]): number {
+  const found = positions.filter((position) => position >= 0);
+  return found.length > 0 ? Math.min(...found) : fallback;
 }

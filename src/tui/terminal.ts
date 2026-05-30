@@ -48,7 +48,7 @@ export class Terminal {
   }
 
   render(text: string): void {
-    stdout.write(`${ansi.clear}${ansi.home}${text}`);
+    stdout.write(`${ansi.home}${text}`);
   }
 
   onKey(handler: KeyHandler): () => void {

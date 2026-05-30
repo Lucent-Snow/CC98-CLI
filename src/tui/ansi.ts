@@ -23,5 +23,9 @@ export function bg(r: number, g: number, b: number): string {
 }
 
 export function stripAnsi(value: string): string {
-  return value.replace(/\x1b\[[0-9;?]*[A-Za-z]/g, "");
+  return value
+    .replace(/\x1b\][\s\S]*?(?:\x07|\x1b\\)/g, "")
+    .replace(/\x1b_[\s\S]*?\x1b\\/g, "")
+    .replace(/\x1bP[\s\S]*?\x1b\\/g, "")
+    .replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "");
 }

@@ -1,4 +1,4 @@
-import { ansi, bg, fg, stripAnsi } from "./ansi.js";
+import { ansi, bg, fg, moveTo, stripAnsi } from "./ansi.js";
 import { Header, Overview, Sidebar, Content, StatusBar, fit, blank } from "./components/index.js";
 import { navItems } from "./navigation.js";
 import type { TopicReaderState, TuiState } from "./state/types.js";
@@ -6,6 +6,8 @@ import { currentTopicLine, currentTopicPost, lineKindLabel } from "./topic-reade
 import { getKeybindingManager, type KeybindingAction } from "./keybindings.js";
 import { BOX_ROUNDED } from "./borders.js";
 import { EMOJI_CATEGORIES, getEmojiArt, renderEmojiCode } from "./emoji-renderer.js";
+import { getImageDimensionsSync, renderLocalImageSync } from "./image-renderer.js";
+import { detectTerminalCapabilities, supportsInlineImages } from "./terminal-capabilities.js";
 
 const cc98Blue = fg(0, 130, 202);
 const cc98BlueSoft = fg(94, 180, 232);
@@ -22,6 +24,7 @@ const sidebar = new Sidebar();
 const content = new Content();
 const statusBar = new StatusBar();
 const keybindings = getKeybindingManager();
+const imagePreviewMarker = "\x00cc98-image-preview\x00";
 
 export function draw(state: TuiState, size: { columns: number; rows: number }): string {
   const width = Math.max(60, size.columns);
@@ -91,8 +94,15 @@ export function draw(state: TuiState, size: { columns: number; rows: number }): 
   const sidebarLines = sidebar.render(state, sidebarWidth, bodyHeight);
   const mainLines = content.render(state, mainWidth - 2, bodyHeight);
   const rightLines = rightWidth > 0 ? drawRight(state, rightWidth, bodyHeight) : [];
+  const overlays: string[] = [];
+  const bodyStartRow = 5;
+  const rightContentColumn = sidebarWidth + mainWidth;
 
   for (let row = 0; row < bodyHeight; row += 1) {
+    const rawRightLine = rightLines[row] ?? "";
+    const imagePreview = rawRightLine.startsWith(imagePreviewMarker)
+      ? rawRightLine.slice(imagePreviewMarker.length)
+      : undefined;
     const parts = [
       line + box.vertical + ansi.reset,
       fit(sidebarLines[row] ?? "", sidebarWidth - 2),
@@ -100,9 +110,12 @@ export function draw(state: TuiState, size: { columns: number; rows: number }): 
       fit(mainLines[row] ?? "", mainWidth - 2)
     ];
     if (rightWidth > 0) {
+      if (imagePreview !== undefined) {
+        overlays.push(`${moveTo(bodyStartRow + row, rightContentColumn)}${imagePreview}`);
+      }
       parts.push(
         line + box.vertical + ansi.reset,
-        fit(rightLines[row] ?? "", rightWidth - 2),
+        fit(imagePreview === undefined ? rawRightLine : "", rightWidth - 2),
         line + box.vertical + ansi.reset
       );
     } else {
@@ -144,6 +157,9 @@ export function draw(state: TuiState, size: { columns: number; rows: number }): 
   if (state.modal === "info") output = drawInfoModal(lines, state, width, height);
   if (state.modal === "search") output = drawSearchModal(lines, state, width, height);
   if (state.modal === "user") output = drawUserDetailModal(lines, state, width, height);
+  if (state.modal === null && overlays.length > 0) {
+    output += overlays.join("") + moveTo(height, 1);
+  }
   return output;
 }
 
@@ -315,10 +331,84 @@ function drawTopicRight(topic: TopicReaderState, scroll: number, width: number, 
     if (post.linkCount > 0) rows.push(`${muted} 链接: ${post.linkCount}${ansi.reset}`);
   }
 
+  if (topicLine?.kind === "image" && topicLine.imageUrl && rows.length < height - 4) {
+    rows.push(`${line}${"─".repeat(Math.max(0, width - 1))}${ansi.reset}`);
+    rows.push(...drawImagePreview(topic, topicLine.imageUrl, width, Math.max(0, height - rows.length - 4)));
+  }
+
   rows.push(`${line}${"─".repeat(Math.max(0, width - 1))}${ansi.reset}`);
   rows.push(`${muted} 当前: ${scroll + 1}/${topic.lines.length}${ansi.reset}`);
   rows.push(`${muted} 已加载: ${topic.loaded} 楼${ansi.reset}`);
   return rows.concat(blank(height - rows.length, width)).slice(0, height);
+}
+
+function drawImagePreview(topic: TopicReaderState, imageUrl: string, width: number, height: number): string[] {
+  const rows: string[] = [];
+  const cachedPath = topic.imageCache.get(imageUrl);
+
+  rows.push(`${cc98Blue}${ansi.bold} 图片预览${ansi.reset}`);
+  if (height <= 1) {
+    return rows;
+  }
+
+  if (topic.imageErrors.has(imageUrl)) {
+    rows.push(`${danger} 下载失败${ansi.reset}`);
+    rows.push(`${muted} o 打开  c 复制图片${ansi.reset}`);
+    return rows.slice(0, height);
+  }
+
+  if (!cachedPath) {
+    rows.push(`${muted}${topic.imageLoading.has(imageUrl) ? " 加载中..." : " 等待缓存..."}${ansi.reset}`);
+    rows.push(`${muted} o 打开  c 复制图片${ansi.reset}`);
+    return rows.slice(0, height);
+  }
+
+  if (!supportsInlineImages()) {
+    const capabilities = detectTerminalCapabilities();
+    rows.push(`${muted} 当前终端未检测到图片协议${ansi.reset}`);
+    rows.push(`${muted} TERM=${capabilities.term || "-"}${ansi.reset}`);
+    rows.push(`${muted} o 打开  c 复制图片${ansi.reset}`);
+    return rows.slice(0, height);
+  }
+
+  const previewSize = estimateRightPreviewSize(cachedPath, width, Math.max(1, height - 2));
+  const rendered = renderLocalImageSync(cachedPath, {
+    maxWidth: previewSize.cols,
+    maxHeight: previewSize.rows
+  });
+
+  if (!rendered) {
+    rows.push(`${muted} 当前协议无法渲染此图片${ansi.reset}`);
+    rows.push(`${muted} o 打开  c 复制图片${ansi.reset}`);
+    return rows.slice(0, height);
+  }
+
+  rows.push(`${imagePreviewMarker}${rendered.escapeSequence}`);
+  rows.push(...blank(Math.max(0, previewSize.rows - 1), width));
+  rows.push(`${muted} o 打开  c 复制图片${ansi.reset}`);
+  return rows.slice(0, height);
+}
+
+function estimateRightPreviewSize(filePath: string, width: number, maxRows: number): { cols: number; rows: number } {
+  const maxCols = Math.max(8, width - 2);
+  const clampedMaxRows = Math.max(4, Math.min(20, maxRows));
+  const fallback = { cols: Math.min(maxCols, 32), rows: Math.min(clampedMaxRows, 12) };
+  const dimensions = getImageDimensionsSync(filePath);
+
+  if (!dimensions || dimensions.width <= 0 || dimensions.height <= 0) {
+    return fallback;
+  }
+
+  const cellWidthPx = 8;
+  const cellHeightPx = 18;
+  const naturalCols = Math.max(1, Math.ceil(dimensions.width / cellWidthPx));
+  const naturalRows = Math.max(1, Math.ceil(dimensions.height / cellHeightPx));
+  const scale = Math.min(1, maxCols / naturalCols, clampedMaxRows / naturalRows);
+
+  return {
+    cols: Math.max(8, Math.min(maxCols, Math.round(naturalCols * scale))),
+    rows: Math.max(4, Math.min(clampedMaxRows, Math.round(naturalRows * scale)))
+  };
 }
 
 function drawHelpModal(baseLines: string[], width: number, height: number): string {

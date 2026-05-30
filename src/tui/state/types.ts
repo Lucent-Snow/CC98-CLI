@@ -86,6 +86,12 @@ export interface TopicReaderState {
   linkCount: number;
   floorInput: string;
   jumpTarget?: TopicJumpTarget;
+  /** Image URL -> local cache path mapping */
+  imageCache: Map<string, string>;
+  /** Set of image URLs currently being downloaded */
+  imageLoading: Set<string>;
+  /** Image URL -> last load error mapping */
+  imageErrors: Map<string, string>;
 }
 
 export interface TopicPostEntry {

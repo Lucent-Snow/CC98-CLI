@@ -33,7 +33,10 @@ export function buildTopicReader(topicId: number, topic: Record<string, unknown>
     imageCount: rendered.imageCount,
     linkCount: rendered.linkCount,
     floorInput: "",
-    jumpTarget: undefined
+    jumpTarget: undefined,
+    imageCache: new Map(),
+    imageLoading: new Set(),
+    imageErrors: new Map()
   };
 }
 
@@ -141,7 +144,7 @@ function renderPosts(posts: unknown[], lineOffset: number, floorOffset: number):
     const author = String(obj.userName ?? asObject(obj.user).name ?? "匿名");
     const time = typeof obj.time === "string" ? obj.time.replace("T", " ").slice(0, 16) : "";
     const content = String(obj.content ?? "");
-    const rendered = renderUbbToLines(content, topicWidth);
+    const rendered = renderUbbToLines(content, { width: topicWidth });
     const postLines: TopicLineEntry[] = [];
     const start = lineOffset + lines.length;
     const header = `#${floor} ${author}${time ? ` · ${time}` : ""}`;
@@ -155,6 +158,7 @@ function renderPosts(posts: unknown[], lineOffset: number, floorOffset: number):
       const kind = classifyLine(renderedLine);
       const imageIndex = kind === "image" ? parseBracketIndex(renderedLine, "image") : undefined;
       const linkIndex = kind === "link" ? parseLinkIndex(renderedLine) : undefined;
+      const imageUrl = imageIndex !== undefined ? rendered.images[imageIndex - 1] : undefined;
       lines.push(renderedLine);
       postLines.push({
         line: lineOffset + lines.length - 1,
@@ -163,7 +167,7 @@ function renderPosts(posts: unknown[], lineOffset: number, floorOffset: number):
         kind,
         text: renderedLine,
         imageIndex,
-        imageUrl: imageIndex !== undefined ? rendered.images[imageIndex - 1] : undefined,
+        imageUrl,
         linkIndex,
         linkUrl: linkIndex !== undefined ? rendered.links[linkIndex - 1] : undefined
       });

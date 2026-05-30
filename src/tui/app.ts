@@ -58,7 +58,7 @@ export async function runTui(): Promise<void> {
         resolve();
       };
 
-      const controller = new TuiController(state, client, tokenStore, render, close, nextSignal, abortCurrent);
+      const controller = new TuiController(state, client, tokenStore, render, close, nextSignal, abortCurrent, webVpnOptions);
       const offResize = terminal.onResize(render);
       const offKey = terminal.onKey((key) => controller.handleKey(key));
 

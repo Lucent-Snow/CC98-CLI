@@ -225,7 +225,7 @@ export class KeybindingManager {
       topicVote: "查看投票",
       topicReaction: "查看评价",
       topicOpenImage: "打开图片",
-      topicCopyLink: "复制链接",
+      topicCopyLink: "复制图片/链接",
       topicRefresh: "刷新帖子",
       listNext: "列表下移",
       listPrev: "列表上移",

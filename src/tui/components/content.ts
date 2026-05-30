@@ -139,7 +139,19 @@ export class Content implements Component {
       const lineIndex = state.scroll + offset;
       const isCursor = lineIndex === topic.cursorLine;
       let renderedLine: string;
-      if (bodyLine.startsWith("[image ")) {
+
+      const topicLine = this.getTopicLine(topic, lineIndex);
+      if (topicLine?.kind === "image" && topicLine.imageUrl) {
+        const cachedPath = topic.imageCache.get(topicLine.imageUrl);
+        const status = topic.imageErrors.has(topicLine.imageUrl)
+          ? "下载失败"
+          : topic.imageLoading.has(topicLine.imageUrl)
+            ? "加载中"
+            : cachedPath
+              ? "已缓存"
+              : undefined;
+        renderedLine = `${cc98BlueSoft}${bodyLine}${status ? `  ${muted}${status}` : ""}${ansi.reset}`;
+      } else if (bodyLine.startsWith("[image ")) {
         renderedLine = `${cc98BlueSoft}${bodyLine}${ansi.reset}`;
       } else if (bodyLine.startsWith("│ ")) {
         renderedLine = `${muted}${bodyLine}${ansi.reset}`;
@@ -167,5 +179,14 @@ export class Content implements Component {
     const fitted = fit(value, contentWidth);
     const padding = Math.max(0, contentWidth - cellWidth(fitted));
     return `${fitted}${" ".repeat(padding)}${marker}`;
+  }
+
+  private getTopicLine(topic: NonNullable<TuiState["topic"]>, lineIndex: number) {
+    for (const post of topic.posts) {
+      if (lineIndex >= post.lineStart && lineIndex <= post.lineEnd) {
+        return post.lines.find((entry) => entry.line === lineIndex);
+      }
+    }
+    return undefined;
   }
 }

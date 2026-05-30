@@ -14,6 +14,7 @@ export const navItems: readonly NavItem[] = [
 
 export const settingsItems: readonly ContentItem[] = [
   { title: "切换账号", meta: "account", detail: "选择或管理登录账号" },
+  { title: "自动签到", meta: "auto-signin", detail: "启动后为所有账号执行每日签到" },
   { title: "检查更新", meta: "update", detail: "检查 CC98-CLI 新版本" },
   { title: "缓存管理", meta: "cache", detail: "查看和清理本地缓存" },
   { title: "CC98 像素 Logo", meta: "pixel-logo", detail: "查看终端像素化的 CC98 标识" },

@@ -63,28 +63,48 @@ export interface RenderedPost {
   links: string[];
 }
 
-export function renderUbbToLines(content: string, width: number): RenderedPost {
+export interface UbbRenderOptions {
+  /** Width for line wrapping */
+  width: number;
+}
+
+export function renderUbbToLines(content: string, widthOrOptions: number | UbbRenderOptions): RenderedPost {
+  const options = typeof widthOrOptions === "number"
+    ? { width: widthOrOptions }
+    : widthOrOptions;
+  const { width } = options;
   const images: string[] = [];
   const links: string[] = [];
   let text = content.replace(/\r\n/g, "\n");
 
-  // 1. 处理图片 [img]url[/img]
-  text = text.replace(/\[img\]([\s\S]*?)\[\/img\]/gi, (_match, url: string) => {
-    const cleanUrl = url.trim();
-    images.push(cleanUrl);
-    const index = images.length;
-    return `\n[image ${index}] ${shortUrl(cleanUrl)}\n          o 打开  c 复制链接\n`;
+  // 1. 处理图片。渲染层再决定是否使用终端内联图片协议。
+  text = text.replace(/<img\b[^>]*\bsrc=["']?([^"'\s>]+)["']?[^>]*>/gi, (_match, url: string) => {
+    return renderImageReference(url, images);
+  });
+
+  text = text.replace(/\[img(?:=[^\]]*)?\]([\s\S]*?)\[\/img\]/gi, (_match, url: string) => {
+    return renderImageReference(url, images);
+  });
+
+  text = text.replace(/\[(?:upload|attach)(?:=[^\]]*)?\]([\s\S]*?)\[\/(?:upload|attach)\]/gi, (_match, url: string) => {
+    return renderImageReference(url, images);
   });
 
   // 2. 处理链接 [url=...]text[/url] 和 [url]url[/url]
   text = text.replace(/\[url=([^\]]+)\]([\s\S]*?)\[\/url\]/gi, (_match, url: string, label: string) => {
-    const cleanUrl = url.trim();
+    const cleanUrl = decodeHtml(url.trim());
+    if (isLikelyImageUrl(cleanUrl)) {
+      return renderImageReference(cleanUrl, images);
+    }
     links.push(cleanUrl);
     return `${ANSI.underline}${ANSI.brightBlue}${stripUbb(label)}${ANSI.reset} ${ANSI.gray}[${links.length}]${ANSI.reset}`;
   });
 
   text = text.replace(/\[url\]([\s\S]*?)\[\/url\]/gi, (_match, url: string) => {
-    const cleanUrl = url.trim();
+    const cleanUrl = decodeHtml(url.trim());
+    if (isLikelyImageUrl(cleanUrl)) {
+      return renderImageReference(cleanUrl, images);
+    }
     links.push(cleanUrl);
     return `${ANSI.underline}${ANSI.brightBlue}${shortUrl(cleanUrl)}${ANSI.reset} ${ANSI.gray}[${links.length}]${ANSI.reset}`;
   });
@@ -134,11 +154,52 @@ export function renderUbbToLines(content: string, width: number): RenderedPost {
   // 9. 解码 HTML 实体
   text = decodeHtml(text);
 
+  // 10. 兜底识别裸图片 URL。
+  text = text.replace(/(^|[\s(（])((?:(?:https?:)?\/\/|\/)[^\s<>\])）]+?\.(?:png|jpe?g|gif|webp|bmp|svg)(?:\?[^\s<>\])）]+)?)/gi, (match: string, prefix: string, url: string) => {
+    const cleanUrl = normalizeImageUrl(url);
+    if (!cleanUrl || images.includes(cleanUrl)) {
+      return match;
+    }
+    return `${prefix.trimEnd()}${renderImageReference(cleanUrl, images)}`;
+  });
+
   return {
     lines: wrapLines(text, width),
     images,
     links,
   };
+}
+
+function renderImageReference(value: string, images: string[]): string {
+  const cleanUrl = normalizeImageUrl(decodeHtml(stripUbb(value).trim()));
+  if (!cleanUrl) {
+    return "";
+  }
+  images.push(cleanUrl);
+  const index = images.length;
+  return `\n[image ${index}] ${shortUrl(cleanUrl)}  o 打开  c 复制图片\n`;
+}
+
+function normalizeImageUrl(value: string): string | undefined {
+  const trimmed = value.trim().replace(/^["']|["']$/g, "");
+  if (!trimmed) return undefined;
+  if (trimmed.startsWith("//")) return `https:${trimmed}`;
+  try {
+    return new URL(trimmed, "https://www.cc98.org").toString();
+  } catch {
+    return undefined;
+  }
+}
+
+function isLikelyImageUrl(value: string): boolean {
+  const normalized = normalizeImageUrl(value);
+  if (!normalized) return false;
+  try {
+    const url = new URL(normalized);
+    return /\.(?:png|jpe?g|gif|webp|bmp|svg)$/i.test(url.pathname);
+  } catch {
+    return false;
+  }
 }
 
 // 解析颜色值

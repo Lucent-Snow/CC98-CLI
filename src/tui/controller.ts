@@ -1,5 +1,7 @@
 import { checkForUpdate } from "../update.js";
 import { appVersion } from "../version.js";
+import { Cc98Client } from "../api/client.js";
+import type { WebVpnOptions } from "../api/types.js";
 import type { TokenStore } from "../storage/token-store.js";
 import { getImageCache } from "../storage/image-cache.js";
 import { SettingsStore } from "../storage/settings-store.js";
@@ -8,7 +10,7 @@ import { getKeybindingManager, type KeybindingManager } from "./keybindings.js";
 import { EMOJI_CATEGORIES, getEmojiArt, renderCc98Logo, renderEmojiCode } from "./emoji-renderer.js";
 import { navItems, settingsItems } from "./navigation.js";
 import { getStatus } from "./state/store.js";
-import type { ContentItem, MenuItem, NoticeType, TuiState, ViewId } from "./state/types.js";
+import type { ContentItem, MenuItem, NoticeType, TopicReaderState, TuiState, ViewId } from "./state/types.js";
 import {
   asArray,
   asNumber,
@@ -47,6 +49,7 @@ export class TuiController {
   private readonly keybindings: KeybindingManager;
   private readonly settingsStore = new SettingsStore();
   private updateChecked = false;
+  private autoSigninChecked = false;
 
   constructor(
     private readonly state: TuiState,
@@ -55,13 +58,15 @@ export class TuiController {
     private readonly render: RenderFn,
     private readonly close: CloseFn,
     private readonly nextSignal: SignalFn,
-    private readonly abortCurrent: () => void
+    private readonly abortCurrent: () => void,
+    private readonly webVpnOptions?: WebVpnOptions
   ) {
     this.keybindings = getKeybindingManager();
   }
 
   async load(force = false): Promise<void> {
     const version = ++this.loadVersion;
+    let shouldAutoSignin = false;
     const signal = this.nextSignal();
     const nav = navItems[this.state.navIndex] ?? navItems[0];
     this.state.viewTitle = nav.label;
@@ -91,6 +96,10 @@ export class TuiController {
         this.updateChecked = true;
         void this.checkUpdate();
       }
+      if (!this.autoSigninChecked) {
+        this.autoSigninChecked = true;
+        shouldAutoSignin = true;
+      }
       const next = await this.loadView(nav.id, force, signal);
       if (version !== this.loadVersion) return;
       this.state.viewTitle = next.title;
@@ -109,6 +118,9 @@ export class TuiController {
       if (version === this.loadVersion) {
         this.state.loading = false;
         this.render();
+        if (shouldAutoSignin) {
+          void this.runAutoSignin();
+        }
       }
     }
   }
@@ -444,11 +456,11 @@ export class TuiController {
         this.openMenu();
       }
     }
-    // c：复制链接
+    // c：图片复制图片本体，链接复制 URL
     if (this.keybindings.matches(key, "topicCopyLink")) {
       const currentLine = this.getCurrentTopicLine();
       if (currentLine?.kind === "image" && currentLine.imageUrl) {
-        void this.copyToClipboard(currentLine.imageUrl);
+        void this.copyImageToClipboard(currentLine.imageUrl);
       } else if (currentLine?.kind === "link" && currentLine.linkUrl) {
         void this.copyToClipboard(currentLine.linkUrl);
       }
@@ -456,8 +468,9 @@ export class TuiController {
   }
 
   private handleSettingsKey(key: string): void {
+    const itemCount = this.state.items.length || settingsItems.length;
     if (this.keybindings.matches(key, "moveDown")) {
-      this.state.itemIndex = Math.min(settingsItems.length - 1, this.state.itemIndex + 1);
+      this.state.itemIndex = Math.min(itemCount - 1, this.state.itemIndex + 1);
       this.render();
       return;
     }
@@ -474,7 +487,7 @@ export class TuiController {
       return;
     }
     if (this.keybindings.matches(key, "confirm") || this.keybindings.matches(key, "moveRight")) {
-      void this.activateSetting(settingsItems[this.state.itemIndex]);
+      void this.activateSetting(this.state.items[this.state.itemIndex] ?? settingsItems[this.state.itemIndex]);
     }
   }
 
@@ -736,11 +749,18 @@ export class TuiController {
         };
       }
       case "settings": {
-        const cacheStats = await this.client.getCacheStats();
+        const [cacheStats, autoSignin] = await Promise.all([
+          this.client.getCacheStats(),
+          this.settingsStore.isAutoSigninEnabled()
+        ]);
         return {
           title: "设置",
-          items: [...settingsItems],
-          stats: [{ title: "缓存", detail: `${cacheStats.fileCacheEntries} 文件` }, { title: "版本", detail: `v${appVersion}` }],
+          items: this.renderSettingsItems(autoSignin),
+          stats: [
+            { title: "自动签到", detail: autoSignin ? "已开启" : "已关闭" },
+            { title: "缓存", detail: `${cacheStats.fileCacheEntries} 文件` },
+            { title: "版本", detail: `v${appVersion}` }
+          ],
           status: "设置：j/k 选择  Enter 执行  h 返回"
         };
       }
@@ -778,11 +798,78 @@ export class TuiController {
       void this.openAccountSwitcher();
       return;
     }
+    if (selected.meta === "auto-signin") {
+      void this.toggleAutoSignin();
+      return;
+    }
     if (selected.meta === "logout") {
       void this.confirmLogout();
       return;
     }
     this.state.status = "功能开发中...";
+    this.render();
+  }
+
+  private renderSettingsItems(autoSignin: boolean): ContentItem[] {
+    return settingsItems.map((item) => {
+      if (item.meta !== "auto-signin") {
+        return { ...item };
+      }
+      return {
+        ...item,
+        title: `自动签到: ${autoSignin ? "开启" : "关闭"}`,
+        detail: autoSignin
+          ? "启动后为所有账号执行每日签到"
+          : "默认关闭，启动时不自动签到"
+      };
+    });
+  }
+
+  private async toggleAutoSignin(): Promise<void> {
+    const enabled = await this.settingsStore.isAutoSigninEnabled();
+    const next = !enabled;
+    await this.settingsStore.setAutoSigninEnabled(next);
+    this.state.items = this.renderSettingsItems(next);
+    this.state.stats = [
+      { title: "自动签到", detail: next ? "已开启" : "已关闭" },
+      ...this.state.stats.filter((item) => item.title !== "自动签到")
+    ];
+    this.state.status = next ? "已开启自动签到" : "已关闭自动签到";
+    this.render();
+  }
+
+  private async runAutoSignin(): Promise<void> {
+    const enabled = await this.settingsStore.isAutoSigninEnabled();
+    if (!enabled) return;
+
+    const accounts = await this.tokenStore.listAccounts();
+    if (accounts.length === 0) return;
+
+    let success = 0;
+    let failed = 0;
+    this.state.status = `自动签到: 0/${accounts.length}`;
+    this.render();
+
+    for (const account of accounts) {
+      try {
+        const tokenStore = this.tokenStore.withAccount(account.account);
+        const client = new Cc98Client({ tokenStore, webVpn: this.webVpnOptions });
+        if (this.webVpnOptions) {
+          await client.initWebVpn();
+        }
+        await client.signin();
+        success += 1;
+      } catch {
+        failed += 1;
+      }
+
+      this.state.status = `自动签到: ${success + failed}/${accounts.length}`;
+      this.render();
+    }
+
+    this.state.status = failed > 0
+      ? `自动签到完成: ${success} 成功，${failed} 失败`
+      : `自动签到完成: ${success} 个账号`;
     this.render();
   }
 
@@ -857,6 +944,11 @@ export class TuiController {
       }
     }
     this.render();
+
+    // Start background image preloading so preview/open/copy can reuse the local cache.
+    if (this.state.topic) {
+      void this.preloadTopicImages(this.state.topic);
+    }
   }
 
   private async openBoard(boardId: number, title: string, force: boolean, signal: AbortSignal, pushParent = true): Promise<void> {
@@ -1016,6 +1108,7 @@ export class TuiController {
       const posts = asArray(await this.client.getTopicPosts(topic.topicId, topic.loaded, topic.size, false, signal));
       appendTopicPosts(topic, posts);
       this.state.status = "";
+      void this.preloadTopicImages(topic);
     } catch (error) {
       if (!isAbortError(error)) this.state.status = error instanceof Error ? error.message : "加载失败";
     } finally {
@@ -1280,6 +1373,57 @@ export class TuiController {
     return undefined;
   }
 
+  /**
+   * Preload images for topic in background
+   * Images are cached and trigger re-render when ready
+   */
+  private async preloadTopicImages(topic: TopicReaderState): Promise<void> {
+    const cache = getImageCache();
+    const imagesToLoad = new Set<string>();
+
+    // Collect all unique image URLs from posts
+    for (const post of topic.posts) {
+      for (const imageUrl of post.images) {
+        if (imageUrl && !topic.imageCache.has(imageUrl) && !topic.imageLoading.has(imageUrl)) {
+          imagesToLoad.add(imageUrl);
+        }
+      }
+    }
+
+    if (imagesToLoad.size === 0) return;
+
+    // Load images in parallel with concurrency limit
+    const urls = Array.from(imagesToLoad);
+    const concurrency = 3;
+
+    for (let i = 0; i < urls.length; i += concurrency) {
+      // Check if topic is still the same (user might have navigated away)
+      if (this.state.topic !== topic) break;
+
+      const batch = urls.slice(i, i + concurrency);
+      let shouldRender = false;
+      const promises = batch.map(async (url) => {
+        topic.imageLoading.add(url);
+        try {
+          const localPath = await cache.getOrDownload(url);
+          topic.imageErrors.delete(url);
+          topic.imageCache.set(url, localPath);
+          shouldRender = true;
+        } catch (error) {
+          topic.imageErrors.set(url, error instanceof Error ? error.message : "下载失败");
+          shouldRender = true;
+        } finally {
+          topic.imageLoading.delete(url);
+        }
+      });
+
+      await Promise.all(promises);
+      if (shouldRender && this.state.topic === topic) {
+        this.render();
+      }
+    }
+  }
+
   private async openImage(url: string): Promise<void> {
     this.state.status = "正在下载图片...";
     this.render();
@@ -1292,7 +1436,11 @@ export class TuiController {
       const { execFile } = await import("node:child_process");
       const platform = process.platform;
       const command = platform === "win32" ? "cmd" : platform === "darwin" ? "open" : "xdg-open";
-      const args = platform === "win32" ? ["/c", "start", "", localPath] : [localPath];
+      const args = platform === "win32"
+        ? ["/c", "start", "", localPath]
+        : platform === "darwin"
+          ? ["-a", "Preview", localPath]
+          : [localPath];
       execFile(command, args, (error) => {
         if (error) {
           this.state.status = `打开失败: ${error.message}`;
@@ -1302,6 +1450,61 @@ export class TuiController {
     } catch (error) {
       this.state.status = error instanceof Error ? error.message : "图片下载失败";
       this.render();
+    }
+  }
+
+  private async copyImageToClipboard(url: string): Promise<void> {
+    this.state.status = "正在复制图片...";
+    this.render();
+    try {
+      const cache = getImageCache();
+      const localPath = await cache.getOrDownload(url);
+      await this.copyImageFileToClipboard(localPath);
+      this.state.status = "已复制图片到剪贴板";
+      this.render();
+    } catch (error) {
+      this.state.status = error instanceof Error ? error.message : "复制图片失败";
+      this.render();
+    }
+  }
+
+  private async copyImageFileToClipboard(localPath: string): Promise<void> {
+    const platform = process.platform;
+    if (platform === "darwin") {
+      await this.copyImageFileToClipboardMac(localPath);
+      return;
+    }
+    if (platform === "win32") {
+      const script = [
+        "Add-Type -AssemblyName System.Windows.Forms",
+        "Add-Type -AssemblyName System.Drawing",
+        "$image=[System.Drawing.Image]::FromFile($args[0])",
+        "[System.Windows.Forms.Clipboard]::SetImage($image)",
+        "$image.Dispose()"
+      ].join("; ");
+      await execFilePromise("powershell.exe", ["-NoProfile", "-Command", script, localPath]);
+      return;
+    }
+
+    const mime = imageMimeType(localPath);
+    await execFilePromise("xclip", ["-selection", "clipboard", "-t", mime, localPath]);
+  }
+
+  private async copyImageFileToClipboardMac(localPath: string): Promise<void> {
+    const { mkdtemp, rm } = await import("node:fs/promises");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const dir = await mkdtemp(join(tmpdir(), "cc98-image-"));
+    const tiffPath = join(dir, "clipboard.tiff");
+
+    try {
+      await execFilePromise("sips", ["-s", "format", "tiff", localPath, "--out", tiffPath]);
+      await execFilePromise("osascript", [
+        "-e",
+        `set the clipboard to (read (POSIX file ${appleScriptString(tiffPath)}) as TIFF picture)`
+      ]);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
     }
   }
 
@@ -1678,4 +1881,32 @@ export class TuiController {
       });
     }
   }
+}
+
+async function execFilePromise(command: string, args: string[]): Promise<void> {
+  const { execFile } = await import("node:child_process");
+  await new Promise<void>((resolve, reject) => {
+    execFile(command, args, (error) => {
+      if (error) {
+        reject(error);
+      } else {
+        resolve();
+      }
+    });
+  });
+}
+
+function appleScriptString(value: string): string {
+  return JSON.stringify(value);
+}
+
+function imageMimeType(path: string): string {
+  const lower = path.toLowerCase();
+  if (lower.endsWith(".png")) return "image/png";
+  if (lower.endsWith(".jpg") || lower.endsWith(".jpeg")) return "image/jpeg";
+  if (lower.endsWith(".gif")) return "image/gif";
+  if (lower.endsWith(".webp")) return "image/webp";
+  if (lower.endsWith(".bmp")) return "image/bmp";
+  if (lower.endsWith(".svg")) return "image/svg+xml";
+  return "image/png";
 }
