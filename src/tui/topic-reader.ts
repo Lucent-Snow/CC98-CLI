@@ -183,7 +183,7 @@ function renderPosts(posts: unknown[], lineOffset: number, floorOffset: number):
       likeCount: asNumber(obj.likeCount) ?? 0,
       dislikeCount: asNumber(obj.dislikeCount) ?? 0,
       rating: formatRating(obj),
-      preview: normalizeInline(rendered.lines.join(" ")).slice(0, 80),
+      preview: normalizeInline(stripAnsi(rendered.lines.join(" "))).slice(0, 80),
       lineStart: start,
       lineEnd: lineOffset + lines.length - 1,
       imageCount: rendered.images.length,

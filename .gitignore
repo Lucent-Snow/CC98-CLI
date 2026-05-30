@@ -6,3 +6,5 @@ dist/
 !.env.example
 docs/
 AGENTS.md
+__pycache__/
+tmp-*.png

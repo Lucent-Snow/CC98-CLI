@@ -47,7 +47,9 @@ export interface ListSnapshot {
   items: ContentItem[];
   stats: ContentItem[];
   itemIndex: number;
+  scroll: number;
   status: string;
+  parent?: ListSnapshot;
 }
 
 export interface BoardListState {

@@ -1,3 +1,5 @@
+import { renderEmojiCode } from "./emoji-renderer.js";
+
 // ANSI 转义码
 const ANSI = {
   reset: "\x1b[0m",
@@ -53,6 +55,8 @@ const COLOR_MAP: Record<string, string> = {
   olive: ANSI.yellow,
 };
 
+const EMOJI_TAG_RE = /\[((?:cc98\d{2})|(?:ac\d{2,4})|(?:em\d{2})|(?:[a-zA-Z]{2}\d{2}))\]/gi;
+
 export interface RenderedPost {
   lines: string[];
   images: string[];
@@ -98,21 +102,10 @@ export function renderUbbToLines(content: string, width: number): RenderedPost {
     return `\n${ANSI.gray}${lines}${ANSI.reset}\n`;
   });
 
-  // 5. 处理表情包 [acXX] [emXX] [cc98XX] [a:XXX] 等
-  text = text.replace(/\[(ac\d{2,4})\]/gi, (_match, code: string) => {
-    return `${ANSI.brightYellow}[${code}]${ANSI.reset}`;
-  });
-  text = text.replace(/\[(em\d{2})\]/gi, (_match, code: string) => {
-    return `${ANSI.brightYellow}[${code}]${ANSI.reset}`;
-  });
-  text = text.replace(/\[(cc98\d{2})\]/gi, (_match, code: string) => {
-    return `${ANSI.brightYellow}[${code}]${ANSI.reset}`;
-  });
-  text = text.replace(/\[(a:\d{3})\]/gi, (_match, code: string) => {
-    return `${ANSI.brightYellow}[${code}]${ANSI.reset}`;
-  });
-  text = text.replace(/\[(tb\d{2})\]/gi, (_match, code: string) => {
-    return `${ANSI.brightYellow}[${code}]${ANSI.reset}`;
+  // 5. 处理表情包，优先渲染为终端像素图，缺失时保留高亮代码。
+  text = text.replace(EMOJI_TAG_RE, (match: string, code: string) => {
+    const art = renderEmojiCode(code);
+    return art ? `\n${art}\n` : `${ANSI.brightYellow}${match}${ANSI.reset}`;
   });
 
   // 6. 处理基本格式标签（转为 ANSI）
@@ -181,7 +174,7 @@ function stripRemainingUbb(value: string): string {
   let result = value;
 
   // 先将表情包代码替换为占位符
-  result = result.replace(/\[(?:ac\d{2,4}|em\d{2}|cc98\d{2}|a:\d{3}|tb\d{2})\]/gi, (match) => {
+  result = result.replace(EMOJI_TAG_RE, (match) => {
     emoticonPlaceholders.push(match);
     return `__EMOTICON_${emoticonPlaceholders.length - 1}__`;
   });

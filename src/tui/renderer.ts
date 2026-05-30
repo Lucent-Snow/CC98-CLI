@@ -5,6 +5,7 @@ import type { TopicReaderState, TuiState } from "./state/types.js";
 import { currentTopicLine, currentTopicPost, lineKindLabel } from "./topic-reader.js";
 import { getKeybindingManager, type KeybindingAction } from "./keybindings.js";
 import { BOX_ROUNDED } from "./borders.js";
+import { EMOJI_CATEGORIES, getEmojiArt, renderEmojiCode } from "./emoji-renderer.js";
 
 const cc98Blue = fg(0, 130, 202);
 const cc98BlueSoft = fg(94, 180, 232);
@@ -206,6 +207,15 @@ function drawItemRight(state: TuiState, width: number, height: number): string[]
   if (!selected) {
     return blank(height, width);
   }
+  if (selected.meta?.startsWith("emoji:")) {
+    return drawEmojiRight(selected.meta.slice("emoji:".length), width, height);
+  }
+  if (selected.meta?.startsWith("emoji-category:")) {
+    return drawEmojiCategoryRight(selected.meta.slice("emoji-category:".length), width, height);
+  }
+  if (selected.meta?.startsWith("emoji-batch:")) {
+    return drawEmojiBatchRight(selected.meta.slice("emoji-batch:".length), width, height);
+  }
 
   const rows: string[] = [];
   rows.push(`${cc98Blue}${ansi.bold} ${selected.title}${ansi.reset}`);
@@ -223,6 +233,66 @@ function drawItemRight(state: TuiState, width: number, height: number): string[]
     rows.push(`${muted} 时间: ${timeStr}${ansi.reset}`);
   }
   
+  return rows.concat(blank(height - rows.length, width)).slice(0, height);
+}
+
+function drawEmojiRight(code: string, width: number, height: number): string[] {
+  const art = getEmojiArt(code);
+  const rendered = renderEmojiCode(code);
+  if (!art || !rendered) {
+    return [`${danger} 未找到 [${code}]${ansi.reset}`].concat(blank(height - 1, width)).slice(0, height);
+  }
+
+  const category = EMOJI_CATEGORIES.find((item) => item.codes.includes(code));
+  const rows: string[] = [];
+  rows.push(`${cc98Blue}${ansi.bold} [${code}]${ansi.reset}`);
+  rows.push(`${line}${"─".repeat(Math.max(0, width - 1))}${ansi.reset}`);
+  rows.push(`${muted} 分类: ${category?.label ?? "未知"}${ansi.reset}`);
+  rows.push(`${muted} 尺寸: ${art.width}x${art.height}px${ansi.reset}`);
+  rows.push(`${muted} 颜色: ${art.palette.length}${ansi.reset}`);
+  rows.push("");
+  rows.push(...rendered.split("\n"));
+  rows.push("");
+  rows.push(`${muted}Enter 放大预览${ansi.reset}`);
+  return rows.concat(blank(height - rows.length, width)).slice(0, height);
+}
+
+function drawEmojiCategoryRight(id: string, width: number, height: number): string[] {
+  const category = EMOJI_CATEGORIES.find((item) => item.id === id);
+  if (!category) {
+    return blank(height, width);
+  }
+  const rows = [
+    `${cc98Blue}${ansi.bold} ${category.label}${ansi.reset}`,
+    `${line}${"─".repeat(Math.max(0, width - 1))}${ansi.reset}`,
+    `${muted} 来源: Assets/Emoji/${category.source}${ansi.reset}`,
+    `${muted} 数量: ${category.codes.length}${ansi.reset}`,
+    `${muted} 范围: ${category.codes[0]} - ${category.codes.at(-1)}${ansi.reset}`,
+    "",
+    `${muted}继续向下选择具体表情${ansi.reset}`
+  ];
+  return rows.concat(blank(height - rows.length, width)).slice(0, height);
+}
+
+function drawEmojiBatchRight(value: string, width: number, height: number): string[] {
+  const [id, batchValue] = value.split(":");
+  const batchNumber = Number(batchValue);
+  const category = EMOJI_CATEGORIES.find((item) => item.id === id);
+  if (!category || !Number.isFinite(batchNumber) || batchNumber < 1) {
+    return blank(height, width);
+  }
+  const start = (batchNumber - 1) * 20;
+  const codes = category.codes.slice(start, start + 20);
+  const rows = [
+    `${cc98Blue}${ansi.bold} ${category.label} 第 ${batchNumber} 批${ansi.reset}`,
+    `${line}${"─".repeat(Math.max(0, width - 1))}${ansi.reset}`,
+    `${muted} 数量: ${codes.length}${ansi.reset}`,
+    `${muted} 范围: ${codes[0] ?? "-"} - ${codes.at(-1) ?? "-"}${ansi.reset}`,
+    "",
+    ...codes.map((code) => `${muted}[${code}]${ansi.reset}`),
+    "",
+    `${muted}继续向下逐个验收${ansi.reset}`
+  ];
   return rows.concat(blank(height - rows.length, width)).slice(0, height);
 }
 

@@ -14,6 +14,7 @@
   "scripts": {
     "build": "tsc",
     "dev": "node --enable-source-maps dist/main.js",
+    "generate:emoji": "python3 scripts/generate-emoji-art.py",
     "check": "tsc --noEmit",
     "prepublishOnly": "npm run check && npm run build"
   },

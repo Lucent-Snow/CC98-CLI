@@ -5,6 +5,7 @@ import { getImageCache } from "../storage/image-cache.js";
 import { SettingsStore } from "../storage/settings-store.js";
 import type { CachedCc98Client } from "./cached-client.js";
 import { getKeybindingManager, type KeybindingManager } from "./keybindings.js";
+import { EMOJI_CATEGORIES, getEmojiArt, renderCc98Logo, renderEmojiCode } from "./emoji-renderer.js";
 import { navItems, settingsItems } from "./navigation.js";
 import { getStatus } from "./state/store.js";
 import type { ContentItem, MenuItem, NoticeType, TuiState, ViewId } from "./state/types.js";
@@ -761,6 +762,14 @@ export class TuiController {
       void this.openCacheManager();
       return;
     }
+    if (selected.meta === "pixel-logo") {
+      this.openPixelLogo();
+      return;
+    }
+    if (selected.meta === "emoji-preview") {
+      this.openEmojiPreview();
+      return;
+    }
     if (selected.meta === "update") {
       void this.checkUpdate(true);
       return;
@@ -798,6 +807,19 @@ export class TuiController {
     if (selected.meta?.startsWith("account:")) {
       const accountName = selected.meta.slice(8);
       await this.switchAccount(accountName);
+      return;
+    }
+    if (selected.meta?.startsWith("emoji-category:")) {
+      this.openEmojiCategory(selected.meta.slice("emoji-category:".length));
+      return;
+    }
+    if (selected.meta?.startsWith("emoji-batch:")) {
+      this.state.status = "继续向下选择具体表情，Enter 放大预览";
+      this.render();
+      return;
+    }
+    if (selected.meta?.startsWith("emoji:")) {
+      this.openEmojiDetail(selected.meta.slice("emoji:".length));
       return;
     }
     if (selected.action?.startsWith("notices:")) {
@@ -1351,6 +1373,88 @@ export class TuiController {
     this.render();
   }
 
+  private openPixelLogo(): void {
+    this.state.modal = "info";
+    this.state.infoTitle = "CC98 像素 Logo";
+    this.state.infoLines = [
+      ...renderCc98Logo().split("\n"),
+      "",
+      "来源: https://www.cc98.org/static/images/98LOGO.ico",
+      "渲染: 24-bit ANSI 半块像素"
+    ];
+    this.render();
+  }
+
+  private openEmojiPreview(): void {
+    const items: ContentItem[] = EMOJI_CATEGORIES.map((category) => ({
+      title: `${category.label} (${category.codes.length})`,
+      meta: `emoji-category:${category.id}`,
+      detail: `来源目录: Assets/Emoji/${category.source} · ${category.codes[0]} - ${category.codes.at(-1)}`
+    }));
+
+    this.openReadOnlyList("表情包预览", items, EMOJI_CATEGORIES.map((category) => ({
+      title: category.label,
+      detail: `${category.codes.length} 个`
+    })));
+    this.state.status = "表情包预览：j/k 选择分类  Enter 进入  h 返回";
+    this.render();
+  }
+
+  private openEmojiCategory(categoryId: string): void {
+    const category = EMOJI_CATEGORIES.find((item) => item.id === categoryId);
+    if (!category) {
+      this.state.status = "未找到表情分类";
+      this.render();
+      return;
+    }
+
+    const items: ContentItem[] = [];
+    for (let index = 0; index < category.codes.length; index += 20) {
+      const batch = category.codes.slice(index, index + 20);
+      const batchNumber = Math.floor(index / 20) + 1;
+      items.push({
+        title: `${category.label} 第 ${batchNumber} 批`,
+        meta: `emoji-batch:${category.id}:${batchNumber}`,
+        detail: `${batch[0]} - ${batch.at(-1)} · ${batch.length} 个`
+      });
+      for (const code of batch) {
+        const art = getEmojiArt(code);
+        items.push({
+          title: `[${code}]`,
+          meta: `emoji:${code}`,
+          detail: art ? `${category.label} · ${art.width}x${art.height}px` : category.label
+        });
+      }
+    }
+
+    this.openReadOnlyList(category.label, items, [
+      { title: "分类", detail: category.label },
+      { title: "数量", detail: `${category.codes.length} 个` },
+      { title: "来源", detail: `Assets/Emoji/${category.source}` }
+    ]);
+    this.state.status = `${category.label}：j/k 选择  Enter 放大  h 返回分类`;
+    this.render();
+  }
+
+  private openEmojiDetail(code: string): void {
+    const art = getEmojiArt(code);
+    const rendered = renderEmojiCode(code);
+    if (!art || !rendered) {
+      this.state.status = `未找到表情 [${code}]`;
+      this.render();
+      return;
+    }
+    this.state.modal = "info";
+    this.state.infoTitle = `[${code}]`;
+    this.state.infoLines = [
+      ...rendered.split("\n"),
+      "",
+      `尺寸: ${art.width}x${art.height}px`,
+      `颜色: ${art.palette.length}`
+    ];
+    this.render();
+  }
+
   private async openAccountSwitcher(): Promise<void> {
     try {
       const accounts = await this.tokenStore.listAccounts();
@@ -1495,15 +1599,15 @@ export class TuiController {
   }
 
   private snapshotParent(): void {
-    if (!this.state.parentList) {
-      this.state.parentList = {
-        title: this.state.viewTitle,
-        items: [...this.state.items],
-        stats: [...this.state.stats],
-        itemIndex: this.state.itemIndex,
-        status: this.state.status
-      };
-    }
+    this.state.parentList = {
+      title: this.state.viewTitle,
+      items: [...this.state.items],
+      stats: [...this.state.stats],
+      itemIndex: this.state.itemIndex,
+      scroll: this.state.scroll,
+      status: this.state.status,
+      parent: this.state.parentList
+    };
   }
 
   private restoreParentList(): void {
@@ -1513,14 +1617,15 @@ export class TuiController {
     this.state.items = parent.items;
     this.state.stats = parent.stats;
     this.state.itemIndex = parent.itemIndex;
+    this.state.scroll = parent.scroll;
     this.state.status = parent.status;
-    this.state.parentList = undefined;
+    this.state.parentList = parent.parent;
     this.state.currentBoard = undefined;
     this.state.currentChat = undefined;
     this.state.topic = undefined;
     this.state.mode = "list";
     this.state.focus = "content";
-    this.state.scroll = 0;
+    this.render();
   }
 
   private async checkUpdate(forceShow = false): Promise<void> {
