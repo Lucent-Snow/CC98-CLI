@@ -5,7 +5,7 @@ import { stripAnsi } from "./ansi.js";
 
 const topicWidth = 72;
 
-export function buildTopicReader(topicId: number, topic: Record<string, unknown>, posts: unknown[], size: number): TopicReaderState {
+export function buildTopicReader(topicId: number, topic: Record<string, unknown>, posts: unknown[], size: number, from = 0): TopicReaderState {
   const title = String(topic.title ?? `主题 #${topicId}`);
   const replyCount = asNumber(topic.replyCount);
   const hitCount = asNumber(topic.hitCount);
@@ -16,7 +16,7 @@ export function buildTopicReader(topicId: number, topic: Record<string, unknown>
     replyCount !== undefined ? `${replyCount} 回复` : undefined,
     hitCount !== undefined ? `${hitCount} 浏览` : undefined
   ].filter(Boolean).join(" · ");
-  const rendered = renderPosts(posts, 0, 0);
+  const rendered = renderPosts(posts, 0, from);
 
   return {
     topicId,
@@ -24,12 +24,12 @@ export function buildTopicReader(topicId: number, topic: Record<string, unknown>
     meta,
     lines: rendered.lines,
     posts: rendered.posts,
-    loaded: posts.length,
+    loaded: from + posts.length,
     size,
     totalFloors,
     viewportRows: 0,
     cursorLine: 0,
-    hasMore: posts.length >= size,
+    hasMore: posts.length >= size && from + posts.length < totalFloors,
     imageCount: rendered.imageCount,
     linkCount: rendered.linkCount,
     floorInput: "",
@@ -45,9 +45,22 @@ export function appendTopicPosts(topic: TopicReaderState, posts: unknown[]): voi
   topic.lines.push(...rendered.lines);
   topic.posts.push(...rendered.posts);
   topic.loaded += posts.length;
-  topic.hasMore = posts.length >= topic.size;
+  topic.hasMore = posts.length >= topic.size && topic.loaded < topic.totalFloors;
   topic.imageCount += rendered.imageCount;
   topic.linkCount += rendered.linkCount;
+}
+
+export function replaceTopicPosts(topic: TopicReaderState, posts: unknown[], from: number): void {
+  const rendered = renderPosts(posts, 0, from);
+  topic.lines = rendered.lines;
+  topic.posts = rendered.posts;
+  topic.loaded = from + posts.length;
+  topic.hasMore = posts.length >= topic.size && topic.loaded < topic.totalFloors;
+  topic.imageCount = rendered.imageCount;
+  topic.linkCount = rendered.linkCount;
+  topic.floorInput = "";
+  topic.jumpTarget = undefined;
+  topic.cursorLine = 0;
 }
 
 export function currentTopicPost(topic: TopicReaderState, scroll: number): TopicPostEntry | undefined {

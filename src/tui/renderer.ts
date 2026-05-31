@@ -229,10 +229,6 @@ function drawItemRight(state: TuiState, width: number, height: number): string[]
   if (selected.meta?.startsWith("emoji-category:")) {
     return drawEmojiCategoryRight(selected.meta.slice("emoji-category:".length), width, height);
   }
-  if (selected.meta?.startsWith("emoji-batch:")) {
-    return drawEmojiBatchRight(selected.meta.slice("emoji-batch:".length), width, height);
-  }
-
   const rows: string[] = [];
   rows.push(`${cc98Blue}${ansi.bold} ${selected.title}${ansi.reset}`);
   rows.push(`${line}${"─".repeat(Math.max(0, width - 1))}${ansi.reset}`);
@@ -286,28 +282,6 @@ function drawEmojiCategoryRight(id: string, width: number, height: number): stri
     `${muted} 范围: ${category.codes[0]} - ${category.codes.at(-1)}${ansi.reset}`,
     "",
     `${muted}继续向下选择具体表情${ansi.reset}`
-  ];
-  return rows.concat(blank(height - rows.length, width)).slice(0, height);
-}
-
-function drawEmojiBatchRight(value: string, width: number, height: number): string[] {
-  const [id, batchValue] = value.split(":");
-  const batchNumber = Number(batchValue);
-  const category = EMOJI_CATEGORIES.find((item) => item.id === id);
-  if (!category || !Number.isFinite(batchNumber) || batchNumber < 1) {
-    return blank(height, width);
-  }
-  const start = (batchNumber - 1) * 20;
-  const codes = category.codes.slice(start, start + 20);
-  const rows = [
-    `${cc98Blue}${ansi.bold} ${category.label} 第 ${batchNumber} 批${ansi.reset}`,
-    `${line}${"─".repeat(Math.max(0, width - 1))}${ansi.reset}`,
-    `${muted} 数量: ${codes.length}${ansi.reset}`,
-    `${muted} 范围: ${codes[0] ?? "-"} - ${codes.at(-1) ?? "-"}${ansi.reset}`,
-    "",
-    ...codes.map((code) => `${muted}[${code}]${ansi.reset}`),
-    "",
-    `${muted}继续向下逐个验收${ansi.reset}`
   ];
   return rows.concat(blank(height - rows.length, width)).slice(0, height);
 }
@@ -462,9 +436,17 @@ function drawSearchModal(baseLines: string[], state: TuiState, width: number, he
     ""
   ];
 
-  for (const item of state.searchResults.slice(0, Math.max(0, height - 14))) {
-    rows.push(`${item.title}`);
-    if (item.meta) rows.push(`${muted}${item.meta}${ansi.reset}`);
+  const maxResults = Math.max(1, Math.floor((height - 14) / 2));
+  const selectedIndex = Math.min(Math.max(0, state.itemIndex), Math.max(0, state.searchResults.length - 1));
+  const resultStart = Math.max(0, Math.min(selectedIndex - maxResults + 1, state.searchResults.length - maxResults));
+  const visibleResults = state.searchResults.slice(resultStart, resultStart + maxResults);
+  for (let offset = 0; offset < visibleResults.length; offset += 1) {
+    const item = visibleResults[offset];
+    const index = resultStart + offset;
+    const active = index === selectedIndex;
+    const prefix = active ? `${ok}●${ansi.reset}` : `${muted}•${ansi.reset}`;
+    rows.push(active ? `${bg(5, 46, 74)}${prefix} ${item.title}${ansi.reset}` : `${prefix} ${item.title}`);
+    if (item.meta) rows.push(`${muted}  ${item.meta}${ansi.reset}`);
   }
   if (state.searchResults.length === 0 && state.searchQuery && !state.loading) rows.push(`${muted}无结果${ansi.reset}`);
   rows.push("", `${muted}Enter 搜索/打开  Tab 切换  / 关闭${ansi.reset}`);

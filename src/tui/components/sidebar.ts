@@ -1,26 +1,15 @@
 // 左栏导航组件
 
-import type { TuiState, NavItem } from "../state/types.js";
+import type { TuiState } from "../state/types.js";
 import type { Component } from "./types.js";
 import { ansi, bg, fg } from "../ansi.js";
 import { fit, cellWidth } from "./utils.js";
+import { navItems } from "../navigation.js";
 
 const cc98Blue = fg(0, 130, 202);
 const cc98BlueSoft = fg(94, 180, 232);
 const white = fg(245, 250, 255);
 const muted = fg(139, 152, 166);
-
-const navItems: NavItem[] = [
-  { id: "hot", label: "十大", hint: "热门话题" },
-  { id: "favorite", label: "收藏", hint: "版面帖子" },
-  { id: "new", label: "最新", hint: "新帖流" },
-  { id: "boards", label: "版面", hint: "所有分区" },
-  { id: "following", label: "关注", hint: "用户动态" },
-  { id: "messages", label: "消息", hint: "未读与私信" },
-  { id: "notices", label: "通知", hint: "系统与回复" },
-  { id: "me", label: "我的", hint: "当前账号" },
-  { id: "settings", label: "设置", hint: "账号与配置" }
-];
 
 export class Sidebar implements Component {
   visible = true;

@@ -44,6 +44,7 @@ export const endpoints = {
       `${base}/Topic/${topicId}/post?from=${from}&size=${size}`,
     newTopics: (from = 0, size = 20) => `${base}/topic/new?from=${from}&size=${size}`,
     randomTopics: (size = 10) => `${base}/topic/random-recent?size=${size}`,
+    randomRecommendations: (size = 10) => `${base}/topic/random-recommendation?size=${size}`,
     search: (keyword: string, from = 0, size = 20) =>
       `${base}/topic/search?keyword=${encodeURIComponent(keyword)}&from=${from}&size=${size}`,
     favoriteTopics: (from = 0, size = 11, order = 1, groupId = 0) =>

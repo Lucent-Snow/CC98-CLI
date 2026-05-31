@@ -215,6 +215,10 @@ export class Cc98Client {
     return this.request<unknown>(endpoints.topic.randomTopics(size), { signal: options.signal });
   }
 
+  async getRandomRecommendations(size = 10, options: RequestOptions = {}): Promise<unknown> {
+    return this.request<unknown>(endpoints.topic.randomRecommendations(size), { signal: options.signal });
+  }
+
   async getFavoriteTopics(from = 0, size = 11, order = 1, groupId = 0, options: RequestOptions = {}): Promise<unknown> {
     return this.request<unknown>(endpoints.topic.favoriteTopics(from, size, order, groupId), { signal: options.signal });
   }

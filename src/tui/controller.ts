@@ -10,7 +10,7 @@ import { getKeybindingManager, type KeybindingManager } from "./keybindings.js";
 import { EMOJI_CATEGORIES, getEmojiArt, renderCc98Logo, renderEmojiCode } from "./emoji-renderer.js";
 import { navItems, settingsItems } from "./navigation.js";
 import { getStatus } from "./state/store.js";
-import type { ContentItem, MenuItem, NoticeType, TopicReaderState, TuiState, ViewId } from "./state/types.js";
+import type { ContentItem, ListPagingState, MenuItem, NoticeType, TabId, TopicReaderState, TuiState, ViewId } from "./state/types.js";
 import {
   asArray,
   asNumber,
@@ -33,12 +33,26 @@ import {
 import {
   appendTopicPosts,
   buildTopicReader,
+  currentTopicLine,
   currentTopicPost,
   findTopicPostByFloor,
   getTopicPageInfo,
   jumpToPage,
+  replaceTopicPosts,
   FLOORS_PER_PAGE
 } from "./topic-reader.js";
+
+interface TopicRestoreTarget {
+  floor: number;
+  lineOffset: number;
+  loaded: number;
+}
+
+interface ListReturnState {
+  itemIndex: number;
+  scroll: number;
+  paging?: ListPagingState;
+}
 
 type RenderFn = () => void;
 type CloseFn = () => void;
@@ -50,6 +64,7 @@ export class TuiController {
   private readonly settingsStore = new SettingsStore();
   private updateChecked = false;
   private autoSigninChecked = false;
+  private listReturnState?: ListReturnState;
 
   constructor(
     private readonly state: TuiState,
@@ -84,6 +99,7 @@ export class TuiController {
     this.state.parentList = undefined;
     this.state.currentBoard = undefined;
     this.state.currentChat = undefined;
+    this.state.listPaging = undefined;
     this.render();
 
     try {
@@ -105,6 +121,7 @@ export class TuiController {
       this.state.viewTitle = next.title;
       this.state.items = next.items;
       this.state.stats = next.stats;
+      this.state.listPaging = next.paging;
       if (next.overview) {
         this.state.overview = next.overview;
       }
@@ -118,6 +135,9 @@ export class TuiController {
       if (version === this.loadVersion) {
         this.state.loading = false;
         this.render();
+        if (this.state.listPaging?.hasMore) {
+          void this.ensureListWindowFilled(this.nextSignal());
+        }
         if (shouldAutoSignin) {
           void this.runAutoSignin();
         }
@@ -221,9 +241,7 @@ export class TuiController {
 
   private handleSearchKey(key: string): void {
     if (this.keybindings.matches(key, "searchClose")) {
-      this.state.modal = null;
-      this.state.searchQuery = "";
-      this.render();
+      this.closeSearch();
       return;
     }
     if (this.keybindings.matches(key, "searchToggleMode")) {
@@ -247,7 +265,7 @@ export class TuiController {
       const selected = this.state.searchResults[this.state.itemIndex];
       if (selected) {
         // 有选中项：打开
-        this.state.modal = null;
+        this.restoreSearchOriginForActivation();
         void this.activateContentItem(selected, this.nextSignal());
       } else if (this.state.searchQuery.trim()) {
         // 无选中项：执行搜索
@@ -432,7 +450,7 @@ export class TuiController {
     }
     // r：刷新
     if (this.keybindings.matches(key, "topicRefresh") && this.state.topic) {
-      void this.openTopic(this.state.topic.topicId, true, this.nextSignal());
+      void this.refreshCurrentTopic(this.nextSignal());
       return;
     }
     // s：收藏
@@ -516,9 +534,20 @@ export class TuiController {
   }
 
   private handleContentKey(key: string): void {
+    if ((key === "\t" || key === "\x1b[Z") && this.state.tabs.length > 1) {
+      this.switchTab(key === "\x1b[Z" ? -1 : 1);
+      return;
+    }
+    if (/^[1-9]$/.test(key) && this.state.tabs.length > 1) {
+      this.switchTabToIndex(Number(key) - 1);
+      return;
+    }
     if (this.keybindings.matches(key, "listNext")) {
+      const previousIndex = this.state.itemIndex;
+      const shouldAdvanceAfterLoad = previousIndex >= this.state.items.length - 1;
       this.state.itemIndex = Math.min(Math.max(0, this.state.items.length - 1), this.state.itemIndex + 1);
       this.render();
+      void this.checkListAutoLoad(shouldAdvanceAfterLoad ? previousIndex + 1 : undefined);
       return;
     }
     if (this.keybindings.matches(key, "listPrev")) {
@@ -545,13 +574,23 @@ export class TuiController {
     if (this.keybindings.matches(key, "menu")) this.openMenu();
   }
 
+  private switchTab(delta: number): void {
+    const current = Math.max(0, this.state.tabs.findIndex((tab) => tab.id === this.state.tabId));
+    const next = (current + delta + this.state.tabs.length) % this.state.tabs.length;
+    this.switchTabToIndex(next);
+  }
+
+  private switchTabToIndex(index: number): void {
+    const tab = this.state.tabs[index];
+    if (!tab || tab.id === this.state.tabId) return;
+    this.state.tabId = tab.id;
+    void this.load(true);
+  }
+
   private leave(): void {
     this.abortCurrent();
     if (this.state.mode === "topic") {
-      this.state.mode = "list";
-      this.state.focus = "content";
-      this.state.status = "";
-      this.render();
+      void this.leaveTopic();
       return;
     }
     if (this.state.parentList) {
@@ -564,8 +603,142 @@ export class TuiController {
     this.render();
   }
 
+  private rememberListReturnState(): void {
+    if (this.state.mode !== "list") return;
+    this.listReturnState = {
+      itemIndex: this.state.itemIndex,
+      scroll: this.state.scroll,
+      paging: this.cloneListPaging(this.state.listPaging)
+    };
+  }
+
+  private async leaveTopic(): Promise<void> {
+    const listReturn = this.listReturnState;
+    this.state.mode = "list";
+    this.state.focus = "content";
+    this.state.status = "";
+    this.state.topic = undefined;
+
+    if (listReturn) {
+      this.state.itemIndex = Math.min(Math.max(0, this.state.items.length - 1), listReturn.itemIndex);
+      this.state.listPaging = this.cloneListPaging(listReturn.paging);
+      this.state.scroll = listReturn.paging?.anchorOnReturn ? this.state.itemIndex : listReturn.scroll;
+      this.listReturnState = undefined;
+    }
+
+    this.render();
+    if (this.state.listPaging?.anchorOnReturn) {
+      await this.ensureListWindowFilled(this.nextSignal());
+    }
+  }
+
+  private async ensureListWindowFilled(signal: AbortSignal): Promise<void> {
+    const paging = this.state.listPaging;
+    if (!paging?.hasMore || this.state.loadingMore) return;
+    const capacity = Math.max(1, this.state.listViewportCapacity || 10);
+    const targetLength = this.state.scroll + capacity;
+    while (this.state.items.length < targetLength && paging.hasMore && !this.state.loadingMore) {
+      const previousLength = this.state.items.length;
+      await this.loadNextListPage(signal);
+      if (this.state.items.length === previousLength) break;
+    }
+  }
+
+  private async checkListAutoLoad(advanceToIndex?: number): Promise<void> {
+    const paging = this.state.listPaging;
+    if (!paging?.hasMore || this.state.loadingMore) return;
+    const capacity = Math.max(1, this.state.listViewportCapacity || 10);
+    const visibleEnd = this.state.scroll + capacity;
+    if (this.state.items.length <= visibleEnd || this.state.itemIndex >= this.state.items.length - 2) {
+      await this.loadNextListPage(this.nextSignal());
+      if (advanceToIndex !== undefined && advanceToIndex < this.state.items.length) {
+        this.state.itemIndex = advanceToIndex;
+        this.state.status = "";
+        this.render();
+      }
+    }
+  }
+
+  private async loadNextListPage(signal: AbortSignal): Promise<void> {
+    const paging = this.state.listPaging;
+    if (!paging?.hasMore || this.state.loadingMore) return;
+    this.state.loadingMore = true;
+    this.render();
+    try {
+      const nextItems = await this.fetchNextListPage(paging, signal);
+      this.state.items.push(...nextItems);
+      paging.loaded += nextItems.length;
+      if (paging.kind !== "favorite-board-topics") {
+        paging.hasMore = nextItems.length >= paging.size;
+      }
+      this.state.stats = this.state.stats.map((item) => {
+        if (item.title === "版面主题" && paging.kind === "favorite-board-topics") {
+          return { ...item, detail: `${paging.loaded} 条` };
+        }
+        if (["主题", "新帖流", "最新新帖", "关注用户", "收藏更新"].includes(item.title)) {
+          return { ...item, detail: `${this.state.items.length} 条` };
+        }
+        return item;
+      });
+      this.state.status = paging.hasMore ? "已加载更多" : "已到底";
+    } catch (error) {
+      if (!isAbortError(error)) this.state.status = error instanceof Error ? error.message : "加载失败";
+    } finally {
+      this.state.loadingMore = false;
+      this.render();
+    }
+  }
+
+  private async fetchNextListPage(paging: ListPagingState, signal: AbortSignal): Promise<ContentItem[]> {
+    if (paging.kind === "new-topics") {
+      const topics = asArray(await this.client.getNewTopics(paging.loaded, paging.size, false, signal));
+      return topics.map((topic) => topicItem(topic));
+    }
+    if (paging.kind === "followee-topics") {
+      const topics = asArray(await this.client.getFolloweeTopics(paging.loaded, paging.size, false, signal));
+      return topics.map((topic) => topicItem(topic));
+    }
+    if (paging.kind === "favorite-board-topics") {
+      return this.fetchNextFavoriteBoardTopics(paging, signal);
+    }
+    const order = paging.kind === "favorite-updates" ? 1 : 0;
+    const topics = asArray(await this.client.getFavoriteTopics(paging.loaded, paging.size, order, 0, false, signal));
+    return topics.map((topic) => topicItem(topic));
+  }
+
+  private async fetchNextFavoriteBoardTopics(paging: ListPagingState, signal: AbortSignal): Promise<ContentItem[]> {
+    const take = Math.max(1, Math.min(20, paging.size));
+    if ((paging.buffer?.length ?? 0) >= take) {
+      const items = paging.buffer?.splice(0, take) ?? [];
+      paging.hasMore = (paging.buffer?.length ?? 0) > 0 || (paging.boardCursors?.some((cursor) => cursor.hasMore) ?? false);
+      return items;
+    }
+
+    const cursors = paging.boardCursors?.filter((cursor) => cursor.hasMore) ?? [];
+    if (cursors.length === 0) {
+      const items = paging.buffer?.splice(0, take) ?? [];
+      paging.hasMore = (paging.buffer?.length ?? 0) > 0;
+      return items;
+    }
+
+    const batches = await mapLimit(cursors, 3, async (cursor) => {
+      const topics = asArray(await this.client.getBoardTopics(cursor.boardId, cursor.loaded, cursor.size, false, false, signal));
+      cursor.loaded += topics.length;
+      cursor.hasMore = topics.length >= cursor.size;
+      return topics.map((topic) => topicItem(topic, { title: cursor.title, boardId: cursor.boardId }));
+    });
+
+    const merged = [...(paging.buffer ?? []), ...batches.flat()]
+      .sort((left, right) => (right.sortTime ?? 0) - (left.sortTime ?? 0));
+    paging.buffer = merged;
+    paging.hasMore = paging.buffer.length > 0 || cursors.some((cursor) => cursor.hasMore);
+    return paging.buffer.splice(0, take);
+  }
+
   private refresh(): void {
-    if (this.state.currentBoard) {
+    if (this.state.mode === "topic" && this.state.topic) {
+      void this.refreshCurrentTopic(this.nextSignal());
+    } else if (this.state.currentBoard) {
       void this.openBoard(this.state.currentBoard.boardId, this.state.currentBoard.title, true, this.nextSignal(), false);
     } else if (this.state.currentChat) {
       void this.openChat(this.state.currentChat.userId, this.state.currentChat.title, true, this.nextSignal(), false);
@@ -576,12 +749,38 @@ export class TuiController {
 
   private openSearch(): void {
     this.state.modal = "search";
+    this.state.searchOrigin = { itemIndex: this.state.itemIndex, scroll: this.state.scroll };
     this.state.searchQuery = "";
     this.state.searchResults = [];
     this.state.searchMode = "topics";
     this.state.searchScope = this.getSearchScope();
     this.state.itemIndex = 0;
     this.render();
+  }
+
+  private closeSearch(): void {
+    const origin = this.state.searchOrigin;
+    this.state.modal = null;
+    this.state.searchOrigin = undefined;
+    this.state.searchQuery = "";
+    this.state.searchResults = [];
+    if (origin) {
+      this.state.itemIndex = origin.itemIndex;
+      this.state.scroll = origin.scroll;
+    }
+    this.render();
+  }
+
+  private restoreSearchOriginForActivation(): void {
+    const origin = this.state.searchOrigin;
+    this.state.modal = null;
+    this.state.searchOrigin = undefined;
+    this.state.searchQuery = "";
+    this.state.searchResults = [];
+    if (origin) {
+      this.state.itemIndex = origin.itemIndex;
+      this.state.scroll = origin.scroll;
+    }
   }
 
   private getSearchScope(): { label: string; boardId?: number } {
@@ -622,15 +821,27 @@ export class TuiController {
     this.render();
   }
 
+  private setTabs(tabs: Array<{ id: TabId; label: string }>, defaultId: TabId): void {
+    this.state.tabs = tabs;
+    if (!tabs.some((tab) => tab.id === this.state.tabId)) {
+      this.state.tabId = defaultId;
+    }
+  }
+
   private async loadView(view: ViewId, force: boolean, signal?: AbortSignal): Promise<{
     title: string;
     items: ContentItem[];
     stats: ContentItem[];
     overview?: ContentItem[];
     status?: string;
+    paging?: ListPagingState;
   }> {
+    if (view !== "new" && view !== "following") {
+      this.setTabs([{ id: "default", label: "" }], "default");
+    }
     switch (view) {
       case "hot": {
+        this.setTabs([{ id: "default", label: "" }], "default");
         const [index, unread] = await Promise.all([
           this.client.getForumIndex(force, signal),
           this.client.getUnreadCount(force, signal)
@@ -642,14 +853,46 @@ export class TuiController {
           title: "十大",
           items: hotTopics.map((topic) => topicItem(topic)),
           stats: unreadStats(unreadObject),
-          overview: overviewStats(indexObject, unreadObject)
+          overview: overviewStats(indexObject, unreadObject),
+          status: "十大：j/k 选择  Enter 打开  r 刷新"
         };
       }
       case "new": {
-        const topics = asArray(await this.client.getNewTopics(0, 12, force, signal));
-        return { title: "最新", items: topics.map((topic) => topicItem(topic)), stats: [{ title: "新帖流", detail: `${topics.length} 条` }] };
+        this.setTabs([
+          { id: "new-latest", label: "最新" },
+          { id: "new-random", label: "随机" },
+          { id: "new-recommendation", label: "推荐" }
+        ], "new-latest");
+        if (this.state.tabId === "new-recommendation") {
+          const topics = asArray(await this.client.getRandomRecommendations(10, true, signal));
+          return {
+            title: "新帖 · 推荐",
+            items: topics.map((topic) => topicItem(topic)),
+            stats: [{ title: "推荐", detail: `${topics.length} 条` }],
+            status: "新帖：Tab 切换  j/k 选择  Enter 打开  r 换一批"
+          };
+        }
+        if (this.state.tabId === "new-random") {
+          const topics = asArray(await this.client.getRandomTopics(20, true, signal));
+          return {
+            title: "新帖 · 随机",
+            items: topics.map((topic) => topicItem(topic)),
+            stats: [{ title: "随机新帖", detail: `${topics.length} 条` }],
+            status: "新帖：Tab 切换  j/k 选择  Enter 打开  r 换一批"
+          };
+        }
+        const size = 20;
+        const topics = asArray(await this.client.getNewTopics(0, size, force, signal));
+        return {
+          title: "新帖 · 最新",
+          items: topics.map((topic) => topicItem(topic)),
+          stats: [{ title: "最新新帖", detail: `${topics.length} 条` }],
+          status: "新帖：Tab 切换  j/k 选择  Enter 打开  r 刷新",
+          paging: { kind: "new-topics", loaded: topics.length, size, hasMore: topics.length >= size, anchorOnReturn: true }
+        };
       }
       case "boards": {
+        this.setTabs([{ id: "default", label: "" }], "default");
         const sections = asArray(await this.client.getAllBoards(force, signal));
         const boards = flattenBoards(sections);
         return {
@@ -660,15 +903,37 @@ export class TuiController {
         };
       }
       case "following": {
-        const topics = asArray(await this.client.getFolloweeTopics(0, 12, force, signal));
-        return {
-          title: "关注",
-          items: topics.map((topic) => topicItem(topic)),
-          stats: [{ title: "关注动态", detail: `${topics.length} 条` }, { title: "缓存", detail: "30s" }],
-          status: "关注：j/k 选择  Enter 打开帖子  h 返回  r 刷新"
-        };
+        this.setTabs([
+          { id: "follow-boards", label: "版面" },
+          { id: "follow-users", label: "用户" },
+          { id: "follow-favorites", label: "追踪" }
+        ], "follow-boards");
+        if (this.state.tabId === "follow-users") {
+          const size = 20;
+          const topics = asArray(await this.client.getFolloweeTopics(0, size, force, signal));
+          return {
+            title: "关注 · 用户",
+            items: topics.map((topic) => topicItem(topic)),
+            stats: [{ title: "关注用户", detail: `${topics.length} 条` }],
+            status: "关注：Tab 切换  j/k 选择  Enter 打开  r 刷新",
+            paging: { kind: "followee-topics", loaded: topics.length, size, hasMore: topics.length >= size, anchorOnReturn: true }
+          };
+        }
+        if (this.state.tabId === "follow-favorites") {
+          const size = 20;
+          const topics = asArray(await this.client.getFavoriteTopics(0, size, 1, 0, force, signal));
+          return {
+            title: "关注 · 追踪",
+            items: topics.map((topic) => topicItem(topic)),
+            stats: [{ title: "收藏更新", detail: `${topics.length} 条` }],
+            status: "关注：Tab 切换  j/k 选择  Enter 打开  r 刷新",
+            paging: { kind: "favorite-updates", loaded: topics.length, size, hasMore: topics.length >= size, anchorOnReturn: true }
+          };
+        }
+        return this.loadFavoriteBoardTopics(force, signal);
       }
       case "favorite": {
+        this.setTabs([{ id: "default", label: "" }], "default");
         const [meRaw, sectionsRaw, topicFavorites] = await Promise.all([
           this.client.getMe(force, signal),
           this.client.getAllBoards(false, signal),
@@ -677,12 +942,20 @@ export class TuiController {
         const customBoards = asArray(asObject(meRaw).customBoards).filter((id): id is number => typeof id === "number");
         const allBoards = flattenBoards(asArray(sectionsRaw));
         const boardById = new Map(allBoards.filter((board) => board.boardId !== undefined).map((board) => [board.boardId, board]));
+        const boardPageSize = 5;
         const topicGroups = await mapLimit(customBoards, 3, async (boardId) => {
           const board = boardById.get(boardId);
-          const topics = asArray(await this.client.getBoardTopics(boardId, 0, 3, false, force, signal));
-          return topics.map((topic) => topicItem(topic, board));
+          const topics = asArray(await this.client.getBoardTopics(boardId, 0, boardPageSize, false, force, signal));
+          return { boardId, board, topics: topics.map((topic) => topicItem(topic, board)), hasMore: topics.length >= boardPageSize };
         });
-        const boardTopics = topicGroups.flat().sort((left, right) => (right.sortTime ?? 0) - (left.sortTime ?? 0)).slice(0, 12);
+        const boardTopics = topicGroups.flatMap((group) => group.topics).sort((left, right) => (right.sortTime ?? 0) - (left.sortTime ?? 0));
+        const boardCursors = topicGroups.map((group) => ({
+          boardId: group.boardId,
+          title: group.board?.title ?? `#${group.boardId}`,
+          loaded: group.topics.length,
+          size: boardPageSize,
+          hasMore: group.hasMore
+        }));
         return {
           title: "收藏",
           items: [
@@ -697,7 +970,15 @@ export class TuiController {
             { title: "收藏主题", detail: `${asArray(topicFavorites).length} 条` },
             { title: "版面主题", detail: `${boardTopics.length} 条` }
           ],
-          status: "收藏：j/k 选择  Enter 打开  h 返回  r 刷新"
+          status: "收藏：j/k 选择  Enter 打开  h 返回  r 刷新",
+          paging: {
+            kind: "favorite-board-topics",
+            loaded: boardTopics.length,
+            size: Math.max(12, customBoards.length * boardPageSize),
+            hasMore: boardCursors.some((cursor) => cursor.hasMore),
+            anchorOnReturn: true,
+            boardCursors
+          }
         };
       }
       case "messages": {
@@ -765,6 +1046,54 @@ export class TuiController {
         };
       }
     }
+  }
+
+  private async loadFavoriteBoardTopics(force: boolean, signal?: AbortSignal): Promise<{
+    title: string;
+    items: ContentItem[];
+    stats: ContentItem[];
+    status?: string;
+    paging?: ListPagingState;
+  }> {
+    const [meRaw, sectionsRaw] = await Promise.all([
+      this.client.getMe(force, signal),
+      this.client.getAllBoards(false, signal)
+    ]);
+    const customBoards = asArray(asObject(meRaw).customBoards).filter((id): id is number => typeof id === "number");
+    const allBoards = flattenBoards(asArray(sectionsRaw));
+    const boardById = new Map(allBoards.filter((board) => board.boardId !== undefined).map((board) => [board.boardId, board]));
+    const boardPageSize = 5;
+    const topicGroups = await mapLimit(customBoards, 3, async (boardId) => {
+      const board = boardById.get(boardId);
+      const topics = asArray(await this.client.getBoardTopics(boardId, 0, boardPageSize, false, force, signal));
+      return { boardId, board, topics: topics.map((topic) => topicItem(topic, board)), hasMore: topics.length >= boardPageSize };
+    });
+    const boardTopics = topicGroups.flatMap((group) => group.topics).sort((left, right) => (right.sortTime ?? 0) - (left.sortTime ?? 0));
+    const boardCursors = topicGroups.map((group) => ({
+      boardId: group.boardId,
+      title: group.board?.title ?? `#${group.boardId}`,
+      loaded: group.topics.length,
+      size: boardPageSize,
+      hasMore: group.hasMore
+    }));
+
+    return {
+      title: "关注 · 版面",
+      items: boardTopics,
+      stats: [
+        { title: "关注版面", detail: `${customBoards.length} 个` },
+        { title: "版面主题", detail: `${boardTopics.length} 条` }
+      ],
+      status: "关注：Tab 切换  j/k 选择  Enter 打开  r 刷新",
+      paging: {
+        kind: "favorite-board-topics",
+        loaded: boardTopics.length,
+        size: Math.max(12, customBoards.length * boardPageSize),
+        hasMore: boardCursors.some((cursor) => cursor.hasMore),
+        anchorOnReturn: true,
+        boardCursors
+      }
+    };
   }
 
   private async activateSetting(selected: ContentItem | undefined): Promise<void> {
@@ -875,6 +1204,7 @@ export class TuiController {
 
   private async activateContentItem(selected: ContentItem, signal: AbortSignal): Promise<void> {
     if (selected.topicId !== undefined) {
+      this.rememberListReturnState();
       await this.openTopic(selected.topicId, false, signal);
       return;
     }
@@ -900,11 +1230,6 @@ export class TuiController {
       this.openEmojiCategory(selected.meta.slice("emoji-category:".length));
       return;
     }
-    if (selected.meta?.startsWith("emoji-batch:")) {
-      this.state.status = "继续向下选择具体表情，Enter 放大预览";
-      this.render();
-      return;
-    }
     if (selected.meta?.startsWith("emoji:")) {
       this.openEmojiDetail(selected.meta.slice("emoji:".length));
       return;
@@ -921,7 +1246,7 @@ export class TuiController {
     this.render();
   }
 
-  private async openTopic(topicId: number, force: boolean, signal: AbortSignal): Promise<void> {
+  private async openTopic(topicId: number, force: boolean, signal: AbortSignal, restore?: TopicRestoreTarget): Promise<void> {
     this.state.mode = "topic";
     this.state.loading = true;
     this.state.error = undefined;
@@ -930,11 +1255,14 @@ export class TuiController {
     this.state.scroll = 0;
     this.render();
     try {
+      const from = restore ? Math.max(0, restore.floor - 1) : 0;
+      const size = 10;
       const [topicRaw, postsRaw] = await Promise.all([
         this.client.getTopic(topicId, force, signal),
-        this.client.getTopicPosts(topicId, 0, 10, force, signal)
+        this.client.getTopicPosts(topicId, from, size, force, signal)
       ]);
-      this.state.topic = buildTopicReader(topicId, asObject(topicRaw), asArray(postsRaw), 10);
+      this.state.topic = buildTopicReader(topicId, asObject(topicRaw), asArray(postsRaw), size, from);
+      if (restore) this.restoreTopicPosition(restore);
       this.state.loading = false;
       this.state.status = "";
     } catch (error) {
@@ -951,6 +1279,31 @@ export class TuiController {
     }
   }
 
+  private async refreshCurrentTopic(signal: AbortSignal): Promise<void> {
+    const topic = this.state.topic;
+    if (!topic) return;
+    const restore = this.getTopicRestoreTarget(topic);
+    await this.openTopic(topic.topicId, true, signal, restore);
+  }
+
+  private getTopicRestoreTarget(topic: TopicReaderState): TopicRestoreTarget {
+    const post = currentTopicPost(topic, topic.cursorLine);
+    return {
+      floor: post?.floor ?? 1,
+      lineOffset: post ? Math.max(0, topic.cursorLine - post.lineStart) : 0,
+      loaded: topic.loaded
+    };
+  }
+
+  private restoreTopicPosition(target: TopicRestoreTarget): void {
+    const topic = this.state.topic;
+    if (!topic) return;
+    const post = findTopicPostByFloor(topic, target.floor);
+    if (!post) return;
+    topic.cursorLine = Math.min(post.lineEnd, post.lineStart + target.lineOffset);
+    this.state.scroll = topic.cursorLine;
+  }
+
   private async openBoard(boardId: number, title: string, force: boolean, signal: AbortSignal, pushParent = true): Promise<void> {
     if (pushParent) this.snapshotParent();
     this.state.loading = true;
@@ -958,6 +1311,7 @@ export class TuiController {
     this.state.viewTitle = title;
     this.state.focus = "content";
     this.state.currentBoard = { boardId, title };
+    this.state.listPaging = undefined;
     this.state.itemIndex = 0;
     this.state.scroll = 0;
     this.render();
@@ -980,6 +1334,7 @@ export class TuiController {
     this.state.error = undefined;
     this.state.viewTitle = `私信: ${title}`;
     this.state.focus = "content";
+    this.state.listPaging = undefined;
     this.state.itemIndex = 0;
     this.state.scroll = 0;
     this.render();
@@ -1067,9 +1422,7 @@ export class TuiController {
     if (!topic) return;
     const pageInfo = getTopicPageInfo(topic, topic.cursorLine);
     if (pageInfo.currentPage > 1) {
-      topic.cursorLine = jumpToPage(topic, pageInfo.currentPage - 1);
-      this.state.status = "";
-      this.render();
+      await this.jumpToTopicPage(pageInfo.currentPage - 1, this.nextSignal());
     }
   }
 
@@ -1082,12 +1435,9 @@ export class TuiController {
       this.render();
       return;
     }
-    // 如果目标页未加载，需要加载到该页
     const targetFloor = (page - 1) * FLOORS_PER_PAGE + 1;
-    while (topic.hasMore && !findTopicPostByFloor(topic, targetFloor)) {
-      const previousLoaded = topic.loaded;
-      await this.loadNextTopicPage(signal, true);
-      if (topic.loaded === previousLoaded) break;
+    if (!findTopicPostByFloor(topic, targetFloor)) {
+      await this.loadTopicWindow(targetFloor, signal);
     }
     const post = findTopicPostByFloor(topic, targetFloor);
     if (post) {
@@ -1097,6 +1447,27 @@ export class TuiController {
       this.state.status = `未找到第 ${page} 页`;
     }
     this.render();
+  }
+
+  private async loadTopicWindow(startFloor: number, signal: AbortSignal): Promise<void> {
+    const topic = this.state.topic;
+    if (!topic || this.state.loadingMore) return;
+    const from = Math.max(0, startFloor - 1);
+    this.state.loadingMore = true;
+    this.render();
+    try {
+      const posts = asArray(await this.client.getTopicPosts(topic.topicId, from, topic.size, false, signal));
+      replaceTopicPosts(topic, posts, from);
+      topic.hasMore = from + posts.length < topic.totalFloors;
+      this.state.scroll = 0;
+      this.state.status = "";
+      void this.preloadTopicImages(topic);
+    } catch (error) {
+      if (!isAbortError(error)) this.state.status = error instanceof Error ? error.message : "加载失败";
+    } finally {
+      this.state.loadingMore = false;
+      this.render();
+    }
   }
 
   private async loadNextTopicPage(signal: AbortSignal, quiet = false): Promise<void> {
@@ -1127,10 +1498,8 @@ export class TuiController {
       this.render();
       return;
     }
-    while (topic.hasMore && !findTopicPostByFloor(topic, floor)) {
-      const previousLoaded = topic.loaded;
-      await this.loadNextTopicPage(signal, true);
-      if (topic.loaded === previousLoaded) break;
+    if (!findTopicPostByFloor(topic, floor)) {
+      await this.loadTopicWindow(floor, signal);
     }
     const post = findTopicPostByFloor(topic, floor);
     topic.cursorLine = post?.lineStart ?? topic.cursorLine;
@@ -1158,8 +1527,14 @@ export class TuiController {
       case "favorite-topics":
       case "favorite-updates": {
         const order = action === "favorite-updates" ? 1 : 0;
-        const topics = asArray(await this.client.getFavoriteTopics(0, 11, order, 0, false, signal));
-        this.openReadOnlyList(action === "favorite-updates" ? "收藏更新" : "收藏主题", topics.map((topic) => topicItem(topic)), [{ title: "主题", detail: `${topics.length}` }]);
+        const size = 20;
+        const topics = asArray(await this.client.getFavoriteTopics(0, size, order, 0, false, signal));
+        this.openReadOnlyList(
+          action === "favorite-updates" ? "收藏更新" : "收藏主题",
+          topics.map((topic) => topicItem(topic)),
+          [{ title: "主题", detail: `${topics.length}` }],
+          { kind: action === "favorite-updates" ? "favorite-updates" : "favorite-topics", loaded: topics.length, size, hasMore: topics.length >= size, anchorOnReturn: true }
+        );
         return;
       }
       case "favorite-groups": {
@@ -1366,11 +1741,7 @@ export class TuiController {
   private getCurrentTopicLine(): import("./state/types.js").TopicLineEntry | undefined {
     const topic = this.state.topic;
     if (!topic) return undefined;
-    for (const post of topic.posts) {
-      const line = post.lines.find((entry) => entry.line === topic.cursorLine);
-      if (line) return line;
-    }
-    return undefined;
+    return currentTopicLine(topic, topic.cursorLine);
   }
 
   /**
@@ -1611,24 +1982,14 @@ export class TuiController {
       return;
     }
 
-    const items: ContentItem[] = [];
-    for (let index = 0; index < category.codes.length; index += 20) {
-      const batch = category.codes.slice(index, index + 20);
-      const batchNumber = Math.floor(index / 20) + 1;
-      items.push({
-        title: `${category.label} 第 ${batchNumber} 批`,
-        meta: `emoji-batch:${category.id}:${batchNumber}`,
-        detail: `${batch[0]} - ${batch.at(-1)} · ${batch.length} 个`
-      });
-      for (const code of batch) {
-        const art = getEmojiArt(code);
-        items.push({
-          title: `[${code}]`,
-          meta: `emoji:${code}`,
-          detail: art ? `${category.label} · ${art.width}x${art.height}px` : category.label
-        });
-      }
-    }
+    const items: ContentItem[] = category.codes.map((code) => {
+      const art = getEmojiArt(code);
+      return {
+        title: `[${code}]`,
+        meta: `emoji:${code}`,
+        detail: art ? `${category.label} · ${art.width}x${art.height}px` : category.label
+      };
+    });
 
     this.openReadOnlyList(category.label, items, [
       { title: "分类", detail: category.label },
@@ -1660,7 +2021,7 @@ export class TuiController {
 
   private async openAccountSwitcher(): Promise<void> {
     try {
-      const accounts = await this.tokenStore.listAccounts();
+      const accounts = (await this.tokenStore.listAccounts()).filter((account) => account.account !== "default");
       const currentAccount = await this.tokenStore.getCurrentAccountName();
       
       if (accounts.length === 0) {
@@ -1682,7 +2043,7 @@ export class TuiController {
       this.state.viewTitle = "切换账号";
       this.state.items = items;
       this.state.stats = [{ title: "账号数", detail: `${accounts.length}` }];
-      this.state.itemIndex = accounts.findIndex(a => a.account === currentAccount);
+      this.state.itemIndex = Math.max(0, accounts.findIndex(a => a.account === currentAccount));
       this.state.scroll = 0;
       this.state.focus = "content";
       this.state.mode = "list";
@@ -1785,11 +2146,12 @@ export class TuiController {
     this.openReadOnlyList(type === "follower" ? "粉丝列表" : "关注列表", users.map((user) => userItem(user)), [{ title: "用户", detail: `${users.length}` }]);
   }
 
-  private openReadOnlyList(title: string, items: ContentItem[], stats: ContentItem[]): void {
+  private openReadOnlyList(title: string, items: ContentItem[], stats: ContentItem[], paging?: ListPagingState): void {
     this.snapshotParent();
     this.state.viewTitle = title;
     this.state.items = items;
     this.state.stats = stats;
+    this.state.listPaging = paging;
     this.state.itemIndex = 0;
     this.state.scroll = 0;
     this.state.focus = "content";
@@ -1809,6 +2171,7 @@ export class TuiController {
       itemIndex: this.state.itemIndex,
       scroll: this.state.scroll,
       status: this.state.status,
+      paging: this.cloneListPaging(this.state.listPaging),
       parent: this.state.parentList
     };
   }
@@ -1822,6 +2185,7 @@ export class TuiController {
     this.state.itemIndex = parent.itemIndex;
     this.state.scroll = parent.scroll;
     this.state.status = parent.status;
+    this.state.listPaging = this.cloneListPaging(parent.paging);
     this.state.parentList = parent.parent;
     this.state.currentBoard = undefined;
     this.state.currentChat = undefined;
@@ -1829,6 +2193,15 @@ export class TuiController {
     this.state.mode = "list";
     this.state.focus = "content";
     this.render();
+  }
+
+  private cloneListPaging(paging: ListPagingState | undefined): ListPagingState | undefined {
+    if (!paging) return undefined;
+    return {
+      ...paging,
+      boardCursors: paging.boardCursors?.map((cursor) => ({ ...cursor })),
+      buffer: paging.buffer?.map((itemValue) => ({ ...itemValue }))
+    };
   }
 
   private async checkUpdate(forceShow = false): Promise<void> {

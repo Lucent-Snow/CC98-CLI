@@ -107,6 +107,10 @@ export class CachedCc98Client {
     return this.cache.getOrSet(`topic:random:${size}`, 15 * second, () => this.client.getRandomTopics(size, { signal }), { force });
   }
 
+  getRandomRecommendations(size = 10, force = false, signal?: AbortSignal): Promise<unknown> {
+    return this.cache.getOrSet(`topic:recommendation:${size}`, 15 * second, () => this.client.getRandomRecommendations(size, { signal }), { force });
+  }
+
   getFavoriteTopics(from = 0, size = 11, order = 1, groupId = 0, force = false, signal?: AbortSignal): Promise<unknown> {
     return this.cache.getOrSet(
       `topic:favorites:${from}:${size}:${order}:${groupId}`,

@@ -1,9 +1,9 @@
 // 状态类型定义
 
-export type ViewId = "hot" | "new" | "boards" | "following" | "favorite" | "messages" | "notices" | "me" | "settings";
+export type ViewId = "hot" | "new" | "following" | "boards" | "favorite" | "messages" | "notices" | "me" | "settings";
 export type FocusColumn = "nav" | "content";
 export type ModalType = "menu" | "help" | "search" | "user" | "info" | null;
-export type TabId = "default" | "posts" | "boards" | "chat" | "notices" | "history" | "followers" | "followees" | "favorites" | "signin" | "my-topics";
+export type TabId = "default" | "new-latest" | "new-random" | "new-recommendation" | "follow-boards" | "follow-users" | "follow-favorites" | "posts" | "boards" | "chat" | "notices" | "history" | "followers" | "followees" | "favorites" | "signin" | "my-topics";
 export type SearchMode = "topics" | "users";
 export type NoticeType = "system" | "at" | "reply";
 
@@ -49,7 +49,28 @@ export interface ListSnapshot {
   itemIndex: number;
   scroll: number;
   status: string;
+  paging?: ListPagingState;
   parent?: ListSnapshot;
+}
+
+export type ListPagingKind = "new-topics" | "followee-topics" | "favorite-topics" | "favorite-updates" | "favorite-board-topics";
+
+export interface FavoriteBoardPagingCursor {
+  boardId: number;
+  title: string;
+  loaded: number;
+  size: number;
+  hasMore: boolean;
+}
+
+export interface ListPagingState {
+  kind: ListPagingKind;
+  loaded: number;
+  size: number;
+  hasMore: boolean;
+  anchorOnReturn: boolean;
+  boardCursors?: FavoriteBoardPagingCursor[];
+  buffer?: ContentItem[];
 }
 
 export interface BoardListState {
@@ -113,6 +134,11 @@ export interface TopicPostEntry {
   lines: TopicLineEntry[];
 }
 
+export interface SearchOriginState {
+  itemIndex: number;
+  scroll: number;
+}
+
 export interface TopicLineEntry {
   line: number;
   row: number;
@@ -146,12 +172,14 @@ export interface TuiState {
   items: ContentItem[];
   stats: ContentItem[];
   overview: ContentItem[];
+  listViewportCapacity: number;
 
   // 导航状态
   parentList?: ListSnapshot;
   currentBoard?: BoardListState;
   currentChat?: ChatListState;
   topic?: TopicReaderState;
+  listPaging?: ListPagingState;
 
   // 模态框状态
   modal: ModalType;
@@ -165,6 +193,7 @@ export interface TuiState {
   searchQuery: string;
   searchResults: ContentItem[];
   searchScope: { label: string; boardId?: number };
+  searchOrigin?: SearchOriginState;
 
   // 用户详情状态
   userDetail?: UserDetailState;

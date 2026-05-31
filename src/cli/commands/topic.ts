@@ -72,6 +72,12 @@ export async function topicCommand(args: string[]): Promise<void> {
       printJson(await client.getRandomTopics(size));
       return;
     }
+    case "recommendation":
+    case "recommend": {
+      const size = parseSizeOnly(rest, 10);
+      printJson(await client.getRandomRecommendations(size));
+      return;
+    }
     case "recent": {
       const { userId, args: pageArgs } = extractUserOption(rest);
       const page = extractPageOptions(pageArgs, { size: 11 });
@@ -267,6 +273,7 @@ Usage:
   cc98 topic <topic-id> --posts
   cc98 topic new [--from n] [--size n]
   cc98 topic random [--size n]
+  cc98 topic recommendation [--size n]
   cc98 topic recent [--me | --user id] [--from n] [--size n]
   cc98 topic favorite [--group id] [--order n] [--from n] [--size n]
   cc98 topic favorite add <topic-id> [group-id]

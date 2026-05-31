@@ -2,10 +2,9 @@ import type { ContentItem, NavItem } from "./state/types.js";
 
 export const navItems: readonly NavItem[] = [
   { id: "hot", label: "十大", hint: "热门话题" },
-  { id: "favorite", label: "收藏", hint: "版面帖子" },
-  { id: "new", label: "最新", hint: "新帖流" },
+  { id: "new", label: "新帖", hint: "最新与随机" },
+  { id: "following", label: "关注", hint: "版面与用户" },
   { id: "boards", label: "版面", hint: "所有分区" },
-  { id: "following", label: "关注", hint: "用户动态" },
   { id: "messages", label: "消息", hint: "未读与私信" },
   { id: "notices", label: "通知", hint: "系统与回复" },
   { id: "me", label: "我的", hint: "当前账号" },

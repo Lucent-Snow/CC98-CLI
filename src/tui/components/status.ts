@@ -49,6 +49,9 @@ export class StatusBar implements Component {
     if (state.mode === "settings") {
       return `${this.keys("moveDown")}/${this.keys("moveUp")} 选择  ${this.keys("confirm")} 执行  ${this.keys("back")} 返回`;
     }
+    if (state.tabs.length > 1) {
+      return `${this.keys("listNext")}/${this.keys("listPrev")} 选择  Tab 切换  ${this.keys("listOpen")} 打开  ${this.keys("listRefresh")} 刷新  ${this.keys("search")} 搜索`;
+    }
     if (state.currentChat) {
       return `${this.keys("listNext")}/${this.keys("listPrev")} 滚动  ${this.keys("listBack")} 返回  ${this.keys("listRefresh")} 刷新`;
     }

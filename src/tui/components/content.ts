@@ -53,13 +53,17 @@ export class Content implements Component {
   private renderList(state: TuiState, width: number, height: number): string[] {
     const rows: string[] = [];
     rows.push(`${cc98Blue}${ansi.bold} ${state.viewTitle}${ansi.reset}`);
+    if (state.tabs.length > 1) {
+      rows.push(fit(` ${state.tabs.map((tab) => tab.id === state.tabId ? `[${tab.label}]` : ` ${tab.label} `).join("  ")}`, width));
+    }
     rows.push(`${line}${"─".repeat(Math.max(0, width - 1))}${ansi.reset}`);
 
     // 每项占2行（标题 + meta），计算可见容量
-    const headerRows = 2; // 标题 + 分隔线
+    const headerRows = state.tabs.length > 1 ? 3 : 2; // 标题 + 可选 Tab + 分隔线
     const rowsPerItem = 2; // 标题行 + meta 行
     const footerRows = 1; // 底部信息
     const visibleCapacity = Math.max(1, Math.floor((height - headerRows - footerRows) / rowsPerItem));
+    state.listViewportCapacity = visibleCapacity;
     
     // 滚动逻辑：确保选中项可见
     if (state.itemIndex < state.scroll) {
@@ -85,12 +89,6 @@ export class Content implements Component {
 
     if (visible.length === 0) {
       rows.push(`${muted} 暂无数据${ansi.reset}`);
-    }
-
-    // 底部滚动指示器
-    const remaining = state.items.length - state.scroll - visibleCapacity;
-    if (remaining > 0 && rows.length < height) {
-      rows.push(fit(`${muted}  ↓ 还有 ${remaining} 项${ansi.reset}`, width));
     }
 
     return rows.concat(blank(height - rows.length, width)).slice(0, height);

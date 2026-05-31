@@ -81,6 +81,9 @@ Usage:
   cc98 board <board-id>     List topics in a board
   cc98 board favorite add|remove <board-id>
   cc98 topic <topic-id>     Read a topic
+  cc98 topic new            Read latest topics
+  cc98 topic random         Read random recent topics
+  cc98 topic recommendation Read random recommended topics
   cc98 topic create <board-id> <title> <content>
   cc98 topic reply <topic-id> <content>
   cc98 topic favorite add|remove <topic-id>

@@ -60,7 +60,7 @@ n 或 Space        加载更多
 q                 退出
 ```
 
-左栏导航包含：十大、收藏、最新、版面、关注、消息、通知、我的、更多、设置。
+左栏导航包含：十大、新帖、关注、版面、消息、通知、我的、设置。其中“新帖”包含最新、随机、推荐三个标签，“关注”包含关注版面、关注用户、追踪更新三个标签。
 
 当前 TUI 已拆分为入口、控制器、渲染器、组件、状态和帖子阅读器几个模块。`src/tui/app.ts` 只负责终端生命周期和依赖组装，具体按键处理与异步加载在 `controller.ts`，布局渲染在 `renderer.ts` 和 `components/`。
 
@@ -71,6 +71,9 @@ CLI 默认输出 JSON，适合配合 `jq` 或脚本使用。
 ```bash
 cc98 me
 cc98 topic <topic-id>
+cc98 topic new
+cc98 topic random
+cc98 topic recommendation
 cc98 board <board-id>
 cc98 search <keyword>
 cc98 message recent
