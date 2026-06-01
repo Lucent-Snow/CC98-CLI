@@ -32,7 +32,8 @@ export function createInitialState(): TuiState {
     inputPrompt: "",
     inputValue: "",
     infoLines: [],
-    confirmCallback: undefined
+    confirmCallback: undefined,
+    cancelCallback: undefined
   };
 }
 

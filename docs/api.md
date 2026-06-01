@@ -69,6 +69,7 @@ Authorization: Bearer <access_token>
 | `/topic/{id}/vote` | GET | 投票信息 |
 | `/topic/new?from=0&size=20` | GET | 最新主题 |
 | `/topic/random-recent?size=10` | GET | 随机主题 |
+| `/topic/random-recommendation?size=10` | GET | 随机推荐主题 |
 | `/topic/search?keyword=xxx&from=0&size=20` | GET | 搜索主题 |
 | `/topic/me/favorite?from=0&size=11&order=1&groupid=0` | GET | 收藏主题 |
 | `/topic/basic?id=1&id=2` | GET | 批量主题基本信息 |

@@ -1,5 +1,5 @@
 import { ansi, bg, fg, moveTo, stripAnsi } from "./ansi.js";
-import { Header, Overview, Sidebar, Content, StatusBar, fit, blank } from "./components/index.js";
+import { Header, Overview, Sidebar, Content, StatusBar, fit, blank, cellWidth } from "./components/index.js";
 import { navItems } from "./navigation.js";
 import type { TopicReaderState, TuiState } from "./state/types.js";
 import { currentTopicLine, currentTopicPost, lineKindLabel } from "./topic-reader.js";
@@ -165,7 +165,7 @@ export function draw(state: TuiState, size: { columns: number; rows: number }): 
 
 function drawRight(state: TuiState, width: number, height: number): string[] {
   if (state.mode === "topic" && state.topic) {
-    return drawTopicRight(state.topic, state.topic.cursorLine, width, height);
+    return withComposePanel(drawTopicRight(state.topic, state.topic.cursorLine, width, height), state, width, height);
   }
   // 新版本更新通知（首次显示）
   if (state.updateAvailable?.isNew) {
@@ -174,7 +174,7 @@ function drawRight(state: TuiState, width: number, height: number): string[] {
   if (state.focus === "nav") {
     return drawNavRight(state, width, height);
   }
-  return drawItemRight(state, width, height);
+  return withComposePanel(drawItemRight(state, width, height), state, width, height);
 }
 
 function drawUpdateRight(update: { tagName: string; url: string; body: string }, width: number, height: number): string[] {
@@ -316,6 +316,62 @@ function drawTopicRight(topic: TopicReaderState, scroll: number, width: number, 
   return rows.concat(blank(height - rows.length, width)).slice(0, height);
 }
 
+function withComposePanel(rows: string[], state: TuiState, width: number, height: number): string[] {
+  const compose = state.compose;
+  if (!compose) {
+    return rows.concat(blank(height - rows.length, width)).slice(0, height);
+  }
+
+  const panel = drawComposePanel(state, width, Math.max(5, Math.min(8, height)));
+  const topHeight = Math.max(0, height - panel.length);
+  return rows.slice(0, topHeight).concat(panel).concat(blank(height, width)).slice(0, height);
+}
+
+function drawComposePanel(state: TuiState, width: number, maxHeight: number): string[] {
+  const compose = state.compose;
+  if (!compose) return [];
+
+  const title = compose.kind === "topic-reply" ? "帖子回复" : "私信回复";
+  const rows = [
+    `${line}${"─".repeat(Math.max(0, width - 1))}${ansi.reset}`,
+    `${cc98Blue}${ansi.bold} ${title}${ansi.reset}`,
+    `${muted} ${compose.title}${ansi.reset}`
+  ];
+  const draft = compose.value || "";
+  const visibleText = draft.length > 0 ? draft : (compose.active ? "" : "暂无草稿");
+  const textRows = wrapPlain(visibleText, Math.max(1, width - 3)).slice(0, Math.max(1, maxHeight - rows.length - 1));
+
+  if (textRows.length === 0) {
+    rows.push(`${muted} > _${ansi.reset}`);
+  } else {
+    for (let index = 0; index < textRows.length; index += 1) {
+      const suffix = compose.active && index === textRows.length - 1 ? "_" : "";
+      rows.push(fit(` > ${textRows[index]}${suffix}`, width));
+    }
+  }
+
+  rows.push(`${muted}${compose.active ? " Enter 确认  Shift+Enter 换行  Esc 暂停" : " R 继续  Esc 返回"}${ansi.reset}`);
+  return rows.slice(0, maxHeight);
+}
+
+function wrapPlain(value: string, width: number): string[] {
+  const lines: string[] = [];
+
+  for (const segment of value.split(/\r?\n/)) {
+    let current = "";
+    for (const char of segment) {
+      if (cellWidth(current + char) > width) {
+        lines.push(current);
+        current = "";
+      }
+      current += char;
+    }
+    lines.push(current);
+  }
+
+  return lines;
+}
+
 function drawImagePreview(topic: TopicReaderState, imageUrl: string, width: number, height: number): string[] {
   const rows: string[] = [];
   const cachedPath = topic.imageCache.get(imageUrl);
@@ -416,12 +472,15 @@ function drawMenuModal(baseLines: string[], state: TuiState, width: number, heig
 }
 
 function drawInfoModal(baseLines: string[], state: TuiState, width: number, height: number): string {
+  const hint = state.confirmCallback
+    ? `${keys("confirm")} 发送  ${keys("back")} 返回编辑`
+    : `${keys("back")} / ${keys("confirm")} 关闭`;
   return overlay(baseLines, width, height, Math.min(68, width - 4), [
     `${cc98Blue}${ansi.bold}${state.infoTitle ?? "信息"}${ansi.reset}`,
     "",
     ...state.infoLines.slice(0, Math.max(1, height - 8)),
     "",
-    `${muted}${keys("back")} / ${keys("confirm")} 关闭${ansi.reset}`
+    `${muted}${hint}${ansi.reset}`
   ]);
 }
 

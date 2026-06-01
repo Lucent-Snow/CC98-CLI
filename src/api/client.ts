@@ -321,11 +321,18 @@ export class Cc98Client {
   }
 
   async signin(): Promise<unknown> {
-    return this.request<unknown>(endpoints.write.signin, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify("")
-    });
+    try {
+      const result = await this.request<unknown>(endpoints.write.signin, {
+        method: "POST",
+        headers: { "content-type": "application/json" }
+      });
+      return result ?? { success: true };
+    } catch (error) {
+      if (error instanceof Error && error.message.includes("has_signed_in_today")) {
+        return { success: true, alreadySigned: true, message: "has_signed_in_today" };
+      }
+      throw error;
+    }
   }
 
   async reactToPost(postId: number, isLike: boolean): Promise<unknown> {

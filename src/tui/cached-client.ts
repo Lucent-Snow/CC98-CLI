@@ -205,6 +205,14 @@ export class CachedCc98Client {
     return this.client.reactToPost(postId, isLike);
   }
 
+  async replyTopic(topicId: number, content: string): Promise<unknown> {
+    const result = await this.client.replyTopic(topicId, content);
+    await Promise.allSettled([
+      this.cache.delete(`topic:meta:${topicId}`)
+    ]);
+    return result;
+  }
+
   // 用户
 
   async getUserProfile(userId: number, force = false, signal?: AbortSignal): Promise<unknown> {
@@ -240,7 +248,12 @@ export class CachedCc98Client {
   // 私信
 
   async sendMessage(userId: number, content: string): Promise<unknown> {
-    return this.client.sendMessage(userId, content);
+    const result = await this.client.sendMessage(userId, content);
+    await Promise.allSettled([
+      this.cache.delete("message:recent:0:10"),
+      this.cache.delete(`message:history:${userId}:0:10`)
+    ]);
+    return result;
   }
 
   // 签到

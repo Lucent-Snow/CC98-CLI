@@ -145,9 +145,7 @@ export class Content implements Component {
           ? "下载失败"
           : topic.imageLoading.has(topicLine.imageUrl)
             ? "加载中"
-            : cachedPath
-              ? "已缓存"
-              : undefined;
+            : undefined;
         renderedLine = `${cc98BlueSoft}${bodyLine}${status ? `  ${muted}${status}` : ""}${ansi.reset}`;
       } else if (bodyLine.startsWith("[image ")) {
         renderedLine = `${cc98BlueSoft}${bodyLine}${ansi.reset}`;

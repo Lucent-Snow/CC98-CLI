@@ -19,6 +19,7 @@ export type KeybindingAction =
   | "menu"
   | "help"
   | "quit"
+  | "reply"
   // 帖子阅读
   | "topicScrollUp"
   | "topicScrollDown"
@@ -80,6 +81,7 @@ export const DEFAULT_KEYBINDINGS: KeybindingConfig = {
   menu: ["o"],
   help: ["?"],
   quit: ["q", "\u0003"],
+  reply: ["R"],
   // 帖子阅读
   topicScrollUp: ["k", "\x1b[A"],
   topicScrollDown: ["j", "\x1b[B"],
@@ -209,6 +211,7 @@ export class KeybindingManager {
       menu: "菜单",
       help: "帮助",
       quit: "退出",
+      reply: "回复",
       topicScrollUp: "帖子上滚",
       topicScrollDown: "帖子下滚",
       topicNextPage: "下一页",

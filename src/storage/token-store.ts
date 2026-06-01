@@ -45,7 +45,7 @@ export class TokenStore {
   }
 
   async save(tokens: { accessToken: string; refreshToken?: string }): Promise<void> {
-    const account = await this.getCurrentAccountName() ?? "default";
+    const account = await this.getCurrentAccountName() ?? "legacy";
     await this.saveAccount(account, tokens);
   }
 
@@ -165,7 +165,11 @@ export class TokenStore {
       const raw = await readFile(this.filePath, "utf8");
       const parsed = JSON.parse(raw) as unknown;
       if (isStoredTokens(parsed)) {
-        return parsed;
+        const normalized = normalizeStoredTokens(parsed);
+        if (normalized.changed) {
+          await this.write(normalized.tokens);
+        }
+        return normalized.tokens;
       }
 
       if (isLegacyTokens(parsed)) {
@@ -202,10 +206,10 @@ function emptyTokens(): StoredTokens {
 function legacyToStoredTokens(value: LegacyTokens & { accessToken: string }): StoredTokens {
   const now = new Date().toISOString();
   return {
-    current: "default",
+    current: "legacy",
     accounts: {
-      default: {
-        account: "default",
+      legacy: {
+        account: "legacy",
         accessToken: value.accessToken,
         refreshToken: value.refreshToken,
         createdAt: now,
@@ -213,6 +217,47 @@ function legacyToStoredTokens(value: LegacyTokens & { accessToken: string }): St
       }
     }
   };
+}
+
+function normalizeStoredTokens(value: StoredTokens): { tokens: StoredTokens; changed: boolean } {
+  const tokens: StoredTokens = {
+    current: value.current,
+    accounts: { ...value.accounts }
+  };
+  const defaultRecord = tokens.accounts.default;
+
+  if (!defaultRecord) {
+    return { tokens, changed: false };
+  }
+
+  const replacement = getDefaultReplacementName(defaultRecord);
+  const replacementName = getUniqueAccountName(replacement, tokens.accounts);
+  tokens.accounts[replacementName] = { ...defaultRecord, account: replacementName };
+  delete tokens.accounts.default;
+  if (tokens.current === "default" || !tokens.current) {
+    tokens.current = replacementName;
+  }
+  return { tokens, changed: true };
+}
+
+function getDefaultReplacementName(record: AccountRecord): string {
+  for (const candidate of [record.displayName, record.username, record.userId !== undefined ? String(record.userId) : undefined, "legacy"]) {
+    const name = candidate?.trim();
+    if (name && name !== "default") {
+      return name;
+    }
+  }
+  return "legacy";
+}
+
+function getUniqueAccountName(baseName: string, accounts: Record<string, AccountRecord>): string {
+  if (!accounts[baseName] || baseName === "default") return baseName;
+
+  let index = 2;
+  while (accounts[`${baseName}-${index}`]) {
+    index += 1;
+  }
+  return `${baseName}-${index}`;
 }
 
 function isStoredTokens(value: unknown): value is StoredTokens {

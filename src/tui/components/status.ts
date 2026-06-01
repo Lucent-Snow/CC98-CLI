@@ -15,6 +15,13 @@ export class StatusBar implements Component {
   private readonly keybindings = getKeybindingManager();
 
   render(state: TuiState, width: number): string {
+    if (state.compose?.active) {
+      const label = state.compose.kind === "topic-reply" ? "帖子回复" : "私信回复";
+      const left = `${label}写作中`;
+      const right = "Enter 确认  Shift+Enter 换行  Esc 暂停";
+      const padding = Math.max(1, width - cellWidth(left) - cellWidth(right) - 2);
+      return fit(`${cc98Blue} ${left}${" ".repeat(padding)}${right} `, width);
+    }
     if (state.inputMode) {
       return fit(`${cc98Blue} ${state.inputPrompt}${state.inputValue}`, width);
     }
@@ -34,6 +41,9 @@ export class StatusBar implements Component {
   }
 
   private getKeyHints(state: TuiState): string {
+    if (state.compose?.active) {
+      return "Enter 确认  Shift+Enter 换行  Esc 暂停";
+    }
     if (state.modal === "search") {
       return `${this.keys("searchExecute")} 搜索/打开  ${this.keys("searchToggleMode")} 切换  ${this.keys("searchClose")} 关闭`;
     }
@@ -44,7 +54,7 @@ export class StatusBar implements Component {
       return "f 关注  m 私信  u 关闭";
     }
     if (state.mode === "topic") {
-      return `${this.keys("topicScrollDown")}/${this.keys("topicScrollUp")} 滚动  ${this.keys("topicNextPage")}/${this.keys("topicPrevPage")} 翻页  ${this.keys("topicNextFloor")}/${this.keys("topicPrevFloor")} 楼层  ${this.keys("back")} 返回`;
+      return `${this.keys("topicScrollDown")}/${this.keys("topicScrollUp")} 滚动  ${this.keys("reply")} 回复  ${this.keys("topicNextPage")}/${this.keys("topicPrevPage")} 翻页  ${this.keys("back")} 返回`;
     }
     if (state.mode === "settings") {
       return `${this.keys("moveDown")}/${this.keys("moveUp")} 选择  ${this.keys("confirm")} 执行  ${this.keys("back")} 返回`;
@@ -53,7 +63,7 @@ export class StatusBar implements Component {
       return `${this.keys("listNext")}/${this.keys("listPrev")} 选择  Tab 切换  ${this.keys("listOpen")} 打开  ${this.keys("listRefresh")} 刷新  ${this.keys("search")} 搜索`;
     }
     if (state.currentChat) {
-      return `${this.keys("listNext")}/${this.keys("listPrev")} 滚动  ${this.keys("listBack")} 返回  ${this.keys("listRefresh")} 刷新`;
+      return `${this.keys("listPrev")} 更早  ${this.keys("listNext")} 更新  ${this.keys("reply")} 回复  ${this.keys("listBack")} 返回  ${this.keys("listRefresh")} 刷新`;
     }
     return state.focus === "nav"
       ? `${this.keys("moveDown")}/${this.keys("moveUp")} 切换  ${this.keys("confirm")} 进入  ${this.keys("refresh")} 刷新  ${this.keys("search")} 搜索  ${this.keys("help")} 帮助  ${this.keys("quit")} 退出`

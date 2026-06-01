@@ -20,6 +20,7 @@ export interface ContentItem {
   topicId?: number;
   boardId?: number;
   chatUserId?: number;
+  messageId?: number;
   userId?: number;
   action?: string;
   sortTime?: number;
@@ -53,7 +54,7 @@ export interface ListSnapshot {
   parent?: ListSnapshot;
 }
 
-export type ListPagingKind = "new-topics" | "followee-topics" | "favorite-topics" | "favorite-updates" | "favorite-board-topics";
+export type ListPagingKind = "new-topics" | "board-topics" | "followee-topics" | "favorite-topics" | "favorite-updates" | "favorite-board-topics";
 
 export interface FavoriteBoardPagingCursor {
   boardId: number;
@@ -70,6 +71,8 @@ export interface ListPagingState {
   hasMore: boolean;
   anchorOnReturn: boolean;
   boardCursors?: FavoriteBoardPagingCursor[];
+  boardId?: number;
+  boardTitle?: string;
   buffer?: ContentItem[];
 }
 
@@ -81,14 +84,25 @@ export interface BoardListState {
 export interface ChatListState {
   userId: number;
   title: string;
+  selfUserId?: number;
   loaded: number;
   size: number;
   hasMore: boolean;
+  messageKeys: Set<string>;
 }
 
 export interface TopicJumpTarget {
   type: "page" | "floor";
   value: number;
+}
+
+export interface ComposeState {
+  kind: "topic-reply" | "message-reply";
+  targetId: number;
+  title: string;
+  value: string;
+  active: boolean;
+  persistDraft: boolean;
 }
 
 export interface TopicReaderState {
@@ -206,11 +220,13 @@ export interface TuiState {
   inputPrompt: string;
   inputValue: string;
   inputCallback?: (value: string) => void;
+  compose?: ComposeState;
 
   // 信息模态框状态
   infoTitle?: string;
   infoLines: string[];
   confirmCallback?: () => void;  // 确认回调
+  cancelCallback?: () => void;
 
   // 更新通知状态
   updateAvailable?: {

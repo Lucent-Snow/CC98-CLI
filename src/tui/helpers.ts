@@ -147,20 +147,97 @@ export function chatItem(value: unknown, userNames: Map<number, string>): Conten
   };
 }
 
-export function chatMessageItems(messages: unknown[], otherName: string, otherUserId: number): ContentItem[] {
+export function chatMessageItems(messages: unknown[], otherName: string, otherUserId: number, selfUserId?: number): ContentItem[] {
   return messages.map((msg) => {
     const obj = asObject(msg);
-    const isMe = Boolean(obj.isMe ?? obj.IsMe);
+    const isMe = isMessageFromMe(obj, otherUserId, selfUserId);
     const content = normalizeInline(String(obj.content ?? obj.Content ?? ""));
     const timeValue = obj.time ?? obj.Time ?? obj.createTime;
     const time = typeof timeValue === "string" ? timeValue.replace("T", " ").slice(0, 16) : "";
+    const messageId = asNumber(obj.id ?? obj.Id);
 
     return {
       title: `${isMe ? "我" : otherName}: ${content}`,
       meta: time,
-      chatUserId: otherUserId
+      messageId
     };
   });
+}
+
+export function chatMessageKey(message: unknown): string {
+  const obj = asObject(message);
+  const id = asNumber(obj.id ?? obj.Id);
+  if (id !== undefined) return `id:${id}`;
+
+  const senderId = messageSenderId(obj);
+  const receiverId = messageReceiverId(obj);
+  const time = String(obj.time ?? obj.Time ?? obj.createTime ?? obj.CreateTime ?? "");
+  const content = String(obj.content ?? obj.Content ?? "");
+  return `${senderId ?? "?"}:${receiverId ?? "?"}:${time}:${content}`;
+}
+
+function isMessageFromMe(message: Record<string, unknown>, otherUserId: number, selfUserId?: number): boolean {
+  const explicit = booleanValue(message.isMe ?? message.IsMe ?? message.fromMe ?? message.FromMe ?? message.isSelf ?? message.IsSelf);
+  if (explicit !== undefined) return explicit;
+
+  const senderId = messageSenderId(message);
+  const receiverId = messageReceiverId(message);
+
+  if (selfUserId !== undefined) {
+    if (senderId === selfUserId) return true;
+    if (receiverId === selfUserId) return false;
+  }
+
+  if (senderId === otherUserId) return false;
+  if (receiverId === otherUserId) return true;
+
+  const senderName = stringValue(message.senderName ?? message.SenderName ?? asObject(message.sender).name ?? asObject(message.Sender).Name);
+  if (senderName && senderName === otherUserId.toString()) return false;
+
+  return false;
+}
+
+function messageSenderId(message: Record<string, unknown>): number | undefined {
+  return asNumber(
+    message.senderId ??
+    message.SenderId ??
+    message.senderUserId ??
+    message.SenderUserId ??
+    message.fromUserId ??
+    message.FromUserId ??
+    asObject(message.sender).id ??
+    asObject(message.Sender).Id ??
+    asObject(message.fromUser).id ??
+    asObject(message.FromUser).Id
+  );
+}
+
+function messageReceiverId(message: Record<string, unknown>): number | undefined {
+  return asNumber(
+    message.receiverId ??
+    message.ReceiverId ??
+    message.receiverUserId ??
+    message.ReceiverUserId ??
+    message.toUserId ??
+    message.ToUserId ??
+    asObject(message.receiver).id ??
+    asObject(message.Receiver).Id ??
+    asObject(message.toUser).id ??
+    asObject(message.ToUser).Id
+  );
+}
+
+function booleanValue(value: unknown): boolean | undefined {
+  if (typeof value === "boolean") return value;
+  if (typeof value === "string") {
+    if (value.toLowerCase() === "true") return true;
+    if (value.toLowerCase() === "false") return false;
+  }
+  return undefined;
+}
+
+function stringValue(value: unknown): string | undefined {
+  return typeof value === "string" ? value : undefined;
 }
 
 export function unreadStats(value: Record<string, unknown>): ContentItem[] {

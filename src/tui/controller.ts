@@ -10,12 +10,13 @@ import { getKeybindingManager, type KeybindingManager } from "./keybindings.js";
 import { EMOJI_CATEGORIES, getEmojiArt, renderCc98Logo, renderEmojiCode } from "./emoji-renderer.js";
 import { navItems, settingsItems } from "./navigation.js";
 import { getStatus } from "./state/store.js";
-import type { ContentItem, ListPagingState, MenuItem, NoticeType, TabId, TopicReaderState, TuiState, ViewId } from "./state/types.js";
+import type { ComposeState, ContentItem, ListPagingState, MenuItem, NoticeType, TabId, TopicReaderState, TuiState, ViewId } from "./state/types.js";
 import {
   asArray,
   asNumber,
   asObject,
   chatItem,
+  chatMessageKey,
   chatMessageItems,
   flattenBoards,
   genericItem,
@@ -100,6 +101,7 @@ export class TuiController {
     this.state.currentBoard = undefined;
     this.state.currentChat = undefined;
     this.state.listPaging = undefined;
+    this.state.compose = undefined;
     this.render();
 
     try {
@@ -146,6 +148,10 @@ export class TuiController {
   }
 
   handleKey(key: string): void {
+    if (this.state.compose?.active) {
+      this.handleComposeKey(key);
+      return;
+    }
     if (this.state.inputMode) {
       this.handleInputKey(key);
       return;
@@ -209,6 +215,60 @@ export class TuiController {
     }
   }
 
+  private handleComposeKey(key: string): void {
+    const compose = this.state.compose;
+    if (!compose) return;
+
+    if (isShiftEnter(key)) {
+      compose.value += "\n";
+      this.saveComposeDraft(compose);
+      this.render();
+      return;
+    }
+
+    if (this.keybindings.matches(key, "inputCancel")) {
+      compose.active = false;
+      if (compose.kind === "message-reply") {
+        this.state.compose = undefined;
+      } else {
+        this.state.status = "已保留草稿";
+      }
+      this.render();
+      return;
+    }
+
+    if (this.keybindings.matches(key, "inputConfirm")) {
+      const content = compose.value.trim();
+      if (!content) {
+        this.state.status = "回复内容为空";
+        this.render();
+        return;
+      }
+      this.confirmComposeSend(compose);
+      return;
+    }
+
+    if (this.keybindings.matches(key, "inputBackspace")) {
+      compose.value = compose.value.slice(0, -1);
+      this.saveComposeDraft(compose);
+      this.render();
+      return;
+    }
+
+    if (key === "\n") {
+      compose.value += "\n";
+      this.saveComposeDraft(compose);
+      this.render();
+      return;
+    }
+
+    if (key.length === 1 && key >= " ") {
+      compose.value += key;
+      this.saveComposeDraft(compose);
+      this.render();
+    }
+  }
+
   private handleModalKey(key: string): void {
     if (this.state.modal === "help") {
       this.closeModal();
@@ -218,12 +278,13 @@ export class TuiController {
       // 如果有确认回调，确认键执行回调，其它键关闭。
       if (this.state.confirmCallback && this.keybindings.matches(key, "confirm")) {
         const callback = this.state.confirmCallback;
-        this.state.confirmCallback = undefined;
         this.closeModal();
         callback();
         return;
       }
+      const cancel = this.state.cancelCallback;
       this.closeModal();
+      if (cancel) cancel();
       return;
     }
     if (this.state.modal === "search") {
@@ -317,6 +378,11 @@ export class TuiController {
   }
 
   private handleMenuKey(key: string): void {
+    const keyed = this.state.menuItems.find((item) => item.key === key);
+    if (keyed) {
+      this.executeMenuItem(keyed);
+      return;
+    }
     if (this.keybindings.matches(key, "menuNext")) {
       this.state.menuIndex = Math.min(Math.max(0, this.state.menuItems.length - 1), this.state.menuIndex + 1);
       this.render();
@@ -335,11 +401,22 @@ export class TuiController {
     if (this.keybindings.matches(key, "menuExecute")) {
       // Enter 或 l 执行选中项
       const selected = this.state.menuItems[this.state.menuIndex];
-      this.state.modal = null;
-      if (selected?.action === "refresh") void this.refresh();
-      if (selected?.action === "back") this.leave();
-      this.render();
+      if (selected) this.executeMenuItem(selected);
     }
+  }
+
+  private executeMenuItem(selected: MenuItem): void {
+    this.state.modal = null;
+    if (selected.action === "refresh") void this.refresh();
+    if (selected.action === "back") this.leave();
+    if (selected.action === "reply") {
+      if (this.state.mode === "topic") {
+        void this.startTopicReply();
+      } else if (this.state.currentChat) {
+        this.startMessageReply();
+      }
+    }
+    this.render();
   }
 
   private handleTopicKey(key: string): void {
@@ -426,6 +503,11 @@ export class TuiController {
     // h/Esc：返回
     if (this.keybindings.matches(key, "back")) {
       this.leave();
+      return;
+    }
+    // R：回复
+    if (this.keybindings.matches(key, "reply")) {
+      void this.startTopicReply();
       return;
     }
     // j：下移
@@ -534,6 +616,10 @@ export class TuiController {
   }
 
   private handleContentKey(key: string): void {
+    if (this.state.currentChat) {
+      this.handleChatKey(key);
+      return;
+    }
     if ((key === "\t" || key === "\x1b[Z") && this.state.tabs.length > 1) {
       this.switchTab(key === "\x1b[Z" ? -1 : 1);
       return;
@@ -571,6 +657,36 @@ export class TuiController {
     }
     if (this.keybindings.matches(key, "listRefresh")) void this.refresh();
     if (this.keybindings.matches(key, "search")) this.openSearch();
+    if (this.keybindings.matches(key, "menu")) this.openMenu();
+  }
+
+  private handleChatKey(key: string): void {
+    if (this.keybindings.matches(key, "listNext")) {
+      this.state.itemIndex = Math.min(Math.max(0, this.state.items.length - 1), this.state.itemIndex + 1);
+      this.render();
+      return;
+    }
+    if (this.keybindings.matches(key, "listPrev")) {
+      if (this.state.itemIndex === 0) {
+        void this.loadPreviousChatPage(this.nextSignal());
+        return;
+      }
+      this.state.itemIndex = Math.max(0, this.state.itemIndex - 1);
+      this.render();
+      return;
+    }
+    if (this.keybindings.matches(key, "listBack")) {
+      this.leave();
+      return;
+    }
+    if (this.keybindings.matches(key, "reply")) {
+      this.startMessageReply();
+      return;
+    }
+    if (this.keybindings.matches(key, "listRefresh")) {
+      void this.refresh();
+      return;
+    }
     if (this.keybindings.matches(key, "menu")) this.openMenu();
   }
 
@@ -618,6 +734,7 @@ export class TuiController {
     this.state.focus = "content";
     this.state.status = "";
     this.state.topic = undefined;
+    this.state.compose = undefined;
 
     if (listReturn) {
       this.state.itemIndex = Math.min(Math.max(0, this.state.items.length - 1), listReturn.itemIndex);
@@ -693,6 +810,11 @@ export class TuiController {
     if (paging.kind === "new-topics") {
       const topics = asArray(await this.client.getNewTopics(paging.loaded, paging.size, false, signal));
       return topics.map((topic) => topicItem(topic));
+    }
+    if (paging.kind === "board-topics") {
+      if (paging.boardId === undefined) return [];
+      const topics = asArray(await this.client.getBoardTopics(paging.boardId, paging.loaded, paging.size, false, false, signal));
+      return topics.map((topic) => topicItem(topic, { title: paging.boardTitle ?? `#${paging.boardId}`, boardId: paging.boardId }));
     }
     if (paging.kind === "followee-topics") {
       const topics = asArray(await this.client.getFolloweeTopics(paging.loaded, paging.size, false, signal));
@@ -801,12 +923,14 @@ export class TuiController {
   private getMenuItems(): MenuItem[] {
     if (this.state.mode === "topic") {
       return [
+        { label: "回复", key: "R", action: "reply" },
         { label: "刷新", key: "r", action: "refresh" },
         { label: "返回列表", key: "h", action: "back" }
       ];
     }
     if (this.state.mode === "list") {
       const items = [{ label: "刷新", key: "r", action: "refresh" }];
+      if (this.state.currentChat) items.unshift({ label: "回复", key: "R", action: "reply" });
       if (this.state.currentBoard) items.push({ label: "返回版面列表", key: "h", action: "back" });
       return items;
     }
@@ -818,6 +942,8 @@ export class TuiController {
     this.state.infoTitle = undefined;
     this.state.infoLines = [];
     this.state.userDetail = undefined;
+    this.state.confirmCallback = undefined;
+    this.state.cancelCallback = undefined;
     this.render();
   }
 
@@ -1252,6 +1378,7 @@ export class TuiController {
     this.state.error = undefined;
     this.state.status = "";
     this.state.topic = undefined;
+    this.state.compose = undefined;
     this.state.scroll = 0;
     this.render();
     try {
@@ -1262,6 +1389,17 @@ export class TuiController {
         this.client.getTopicPosts(topicId, from, size, force, signal)
       ]);
       this.state.topic = buildTopicReader(topicId, asObject(topicRaw), asArray(postsRaw), size, from);
+      const draft = await this.settingsStore.getTopicReplyDraft(topicId);
+      if (draft) {
+        this.state.compose = {
+          kind: "topic-reply",
+          targetId: topicId,
+          title: this.state.topic.title,
+          value: draft,
+          active: false,
+          persistDraft: true
+        };
+      }
       if (restore) this.restoreTopicPosition(restore);
       this.state.loading = false;
       this.state.status = "";
@@ -1316,8 +1454,18 @@ export class TuiController {
     this.state.scroll = 0;
     this.render();
     try {
-      const topics = asArray(await this.client.getBoardTopics(boardId, 0, 20, false, force, signal));
+      const size = 20;
+      const topics = asArray(await this.client.getBoardTopics(boardId, 0, size, false, force, signal));
       this.state.items = topics.map((topic) => topicItem(topic, { title, boardId }));
+      this.state.listPaging = {
+        kind: "board-topics",
+        loaded: topics.length,
+        size,
+        hasMore: topics.length >= size,
+        anchorOnReturn: true,
+        boardId,
+        boardTitle: title
+      };
       this.state.stats = [{ title: "主题", detail: `${topics.length} 条` }];
       this.state.status = `版面 ${title}: j/k 选择  Enter 打开帖子  h 返回`;
     } catch (error) {
@@ -1325,6 +1473,9 @@ export class TuiController {
     } finally {
       this.state.loading = false;
       this.render();
+      if (this.state.currentBoard?.boardId === boardId && this.state.listPaging?.hasMore) {
+        await this.ensureListWindowFilled(signal);
+      }
     }
   }
 
@@ -1335,15 +1486,32 @@ export class TuiController {
     this.state.viewTitle = `私信: ${title}`;
     this.state.focus = "content";
     this.state.listPaging = undefined;
+    this.state.compose = undefined;
     this.state.itemIndex = 0;
     this.state.scroll = 0;
     this.render();
     try {
-      const messages = asArray(await this.client.getChatHistory(userId, 0, 10, force, signal));
-      this.state.items = chatMessageItems(messages, title, userId);
-      this.state.currentChat = { userId, title, loaded: messages.length, size: 10, hasMore: messages.length >= 10 };
+      const [messagesRaw, meRaw] = await Promise.all([
+        this.client.getChatHistory(userId, 0, 10, force, signal),
+        this.client.getMe(false, signal)
+      ]);
+      const messages = asArray(messagesRaw);
+      const selfUserId = asNumber(asObject(meRaw).id ?? asObject(meRaw).Id);
+      const messageKeys = new Set(messages.map((message) => chatMessageKey(message)));
+      const orderedMessages = orderChatMessagesForDisplay(messages);
+      this.state.items = chatMessageItems(orderedMessages, title, userId, selfUserId);
+      this.state.currentChat = {
+        userId,
+        title,
+        selfUserId,
+        loaded: messages.length,
+        size: 10,
+        hasMore: messages.length >= 10,
+        messageKeys
+      };
+      this.state.itemIndex = Math.max(0, this.state.items.length - 1);
       this.state.stats = [{ title: "会话", detail: title }, { title: "消息", detail: `${messages.length}` }];
-      this.state.status = "私信：n 加载更多  h 返回";
+      this.state.status = "私信：k 向上翻更早消息  j 向下  R 回复  h 返回";
     } catch (error) {
       if (!isAbortError(error)) this.state.error = error instanceof Error ? error.message : String(error);
     } finally {
@@ -1352,17 +1520,35 @@ export class TuiController {
     }
   }
 
-  private async loadNextChatPage(signal: AbortSignal): Promise<void> {
+  private async loadPreviousChatPage(signal: AbortSignal): Promise<void> {
     const chat = this.state.currentChat;
     if (!chat?.hasMore || this.state.loadingMore) return;
     this.state.loadingMore = true;
     this.render();
     try {
       const messages = asArray(await this.client.getChatHistory(chat.userId, chat.loaded, chat.size, false, signal));
-      this.state.items.push(...chatMessageItems(messages, chat.title, chat.userId));
+      const uniqueMessages = messages.filter((message) => {
+        const key = chatMessageKey(message);
+        if (chat.messageKeys.has(key)) return false;
+        chat.messageKeys.add(key);
+        return true;
+      });
+      const previousIndex = this.state.itemIndex;
+      const previousScroll = this.state.scroll;
+      const olderItems = chatMessageItems(orderChatMessagesForDisplay(uniqueMessages), chat.title, chat.userId, chat.selfUserId);
+      this.state.items.unshift(...olderItems);
+      if (olderItems.length > 0) {
+        this.state.itemIndex = previousIndex + olderItems.length;
+        this.state.scroll = previousScroll + olderItems.length;
+      }
       chat.loaded += messages.length;
-      chat.hasMore = messages.length >= chat.size;
-      this.state.status = chat.hasMore ? "已加载更多私信" : "已到底";
+      chat.hasMore = messages.length >= chat.size && uniqueMessages.length > 0;
+      this.state.stats = this.state.stats.map((item) =>
+        item.title === "消息" ? { ...item, detail: `${this.state.items.length}` } : item
+      );
+      this.state.status = uniqueMessages.length > 0
+        ? (chat.hasMore ? "已加载更早私信" : "已到最早私信")
+        : "已到最早私信";
     } catch (error) {
       if (!isAbortError(error)) this.state.status = error instanceof Error ? error.message : "加载失败";
     } finally {
@@ -1620,6 +1806,110 @@ export class TuiController {
       this.state.status = error instanceof Error ? error.message : "收藏操作失败";
     }
     this.render();
+  }
+
+  private async startTopicReply(): Promise<void> {
+    const topic = this.state.topic;
+    if (!topic) return;
+    const existing = this.state.compose;
+    const value = existing?.kind === "topic-reply" && existing.targetId === topic.topicId
+      ? existing.value
+      : await this.settingsStore.getTopicReplyDraft(topic.topicId);
+
+    this.state.compose = {
+      kind: "topic-reply",
+      targetId: topic.topicId,
+      title: topic.title,
+      value,
+      active: true,
+      persistDraft: true
+    };
+    this.state.status = "写作中";
+    this.render();
+  }
+
+  private startMessageReply(): void {
+    const chat = this.state.currentChat;
+    if (!chat) return;
+    this.state.compose = {
+      kind: "message-reply",
+      targetId: chat.userId,
+      title: chat.title,
+      value: "",
+      active: true,
+      persistDraft: false
+    };
+    this.state.status = "写作中";
+    this.render();
+  }
+
+  private saveComposeDraft(compose: ComposeState): void {
+    if (compose.kind !== "topic-reply" || !compose.persistDraft) return;
+    void this.settingsStore.setTopicReplyDraft(compose.targetId, compose.value);
+  }
+
+  private confirmComposeSend(compose: ComposeState): void {
+    compose.active = false;
+    const target = compose.kind === "topic-reply" ? "帖子回复" : "私信回复";
+    const preview = compose.value.trim().replace(/\s+/g, " ").slice(0, 120);
+    this.state.modal = "info";
+    this.state.infoTitle = "确认发送";
+    this.state.infoLines = [
+      `类型: ${target}`,
+      `发送到: ${compose.title}`,
+      "",
+      preview || "(空)"
+    ];
+    this.state.confirmCallback = () => void this.submitCompose(compose);
+    this.state.cancelCallback = () => {
+      compose.active = true;
+      this.state.compose = compose;
+      this.state.status = "继续编辑";
+      this.render();
+    };
+    this.render();
+  }
+
+  private async submitCompose(compose: ComposeState): Promise<void> {
+    const content = compose.value.trim();
+    if (!content) return;
+
+    compose.active = false;
+    this.state.status = "正在发送...";
+    this.render();
+
+    try {
+      if (compose.kind === "topic-reply") {
+        await this.client.replyTopic(compose.targetId, content);
+        await this.settingsStore.setTopicReplyDraft(compose.targetId, "");
+        this.state.compose = undefined;
+        this.state.status = "回复已发送";
+        if (this.state.topic?.topicId === compose.targetId) {
+          await this.refreshCurrentTopic(this.nextSignal());
+          this.state.status = "回复已发送";
+          this.render();
+        } else {
+          this.render();
+        }
+        return;
+      }
+
+      await this.client.sendMessage(compose.targetId, content);
+      this.state.compose = undefined;
+      this.state.status = "私信已发送";
+      if (this.state.currentChat?.userId === compose.targetId) {
+        await this.openChat(compose.targetId, compose.title, true, this.nextSignal(), false);
+        this.state.status = "私信已发送";
+        this.render();
+      } else {
+        this.render();
+      }
+    } catch (error) {
+      compose.active = true;
+      this.state.compose = compose;
+      this.state.status = error instanceof Error ? error.message : "发送失败";
+      this.render();
+    }
   }
 
   private async reactToCurrentPost(isLike: boolean): Promise<void> {
@@ -2254,6 +2544,37 @@ export class TuiController {
       });
     }
   }
+}
+
+function isShiftEnter(key: string): boolean {
+  return key === "\x1b[13;2u" ||
+    key === "\x1b[13;2~" ||
+    key === "\x1b[27;2;13~";
+}
+
+function orderChatMessagesForDisplay(messages: unknown[]): unknown[] {
+  const indexed = messages.map((message, index) => {
+    const obj = asObject(message);
+    const timeValue = obj.time ?? obj.Time ?? obj.createTime ?? obj.CreateTime;
+    const timestamp = typeof timeValue === "string" ? new Date(timeValue).getTime() : NaN;
+    return { message, index, timestamp };
+  });
+  const sortable = indexed.filter((item) => Number.isFinite(item.timestamp));
+
+  if (sortable.length >= 2) {
+    return indexed
+      .sort((left, right) => {
+        if (Number.isFinite(left.timestamp) && Number.isFinite(right.timestamp)) {
+          return left.timestamp - right.timestamp;
+        }
+        if (Number.isFinite(left.timestamp)) return -1;
+        if (Number.isFinite(right.timestamp)) return 1;
+        return left.index - right.index;
+      })
+      .map((item) => item.message);
+  }
+
+  return [...messages].reverse();
 }
 
 async function execFilePromise(command: string, args: string[]): Promise<void> {

@@ -1,6 +1,6 @@
 # CC98-CLI 文档
 
-本目录记录 CC98-CLI 的架构、接口、路线图和 TUI 设计。注意：本目录在 `.gitignore` 中默认忽略，只有需要随代码同步的文档才会显式 `git add -f` 纳入提交。
+本目录只同步公开维护文档。参考项目摘录、临时产品分析、发布操作草稿等内容保留在本地，不进入仓库。
 
 ## 内容
 
@@ -8,12 +8,9 @@
 - [API 参考](api.md)
 - [API 对比](api-comparison.md)
 - [TUI vs CLI 功能对比](tui-cli-comparison.md)
-- [TUI 设计分析](tui-design-analysis.md)
 - [开发路线图](ROADMAP.md)
 - [项目进度](PROGRESS.md)
 - [缓存策略 ADR](decisions/001-cache-strategy.md)
-- [CC98-Desktop 参考](reference-cc98-desktop.md)
-- [Yazi TUI 参考](reference-yazi.md)
 
 ## 当前 TUI 结构
 
