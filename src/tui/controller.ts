@@ -7,10 +7,11 @@ import { getImageCache } from "../storage/image-cache.js";
 import { SettingsStore } from "../storage/settings-store.js";
 import type { CachedCc98Client } from "./cached-client.js";
 import { getKeybindingManager, type KeybindingManager } from "./keybindings.js";
+import { stripAnsi } from "./ansi.js";
 import { EMOJI_CATEGORIES, getEmojiArt, renderCc98Logo, renderEmojiCode } from "./emoji-renderer.js";
 import { navItems, settingsItems } from "./navigation.js";
 import { getStatus } from "./state/store.js";
-import type { ComposeState, ContentItem, ListPagingState, MenuItem, NoticeType, TabId, TopicReaderState, TuiState, ViewId } from "./state/types.js";
+import type { ComposeState, ContentItem, ContentSearchState, ListPagingState, MenuItem, NoticeType, SearchMode, SearchPagingState, TabId, TopicReaderState, TopicSearchScope, TuiState, ViewId } from "./state/types.js";
 import {
   asArray,
   asNumber,
@@ -25,6 +26,7 @@ import {
   jsonPreviewLines,
   loadChatUserNames,
   mapLimit,
+  normalizeInline,
   noticeItem,
   overviewStats,
   topicItem,
@@ -53,6 +55,11 @@ interface ListReturnState {
   itemIndex: number;
   scroll: number;
   paging?: ListPagingState;
+}
+
+interface SearchPageResult {
+  items: ContentItem[];
+  rawCount: number;
 }
 
 type RenderFn = () => void;
@@ -176,6 +183,22 @@ export class TuiController {
     }
     if (this.state.modal) {
       this.handleModalKey(key);
+      return;
+    }
+    if (this.state.contentSearch && key === "\x1b") {
+      this.clearContentSearch();
+      return;
+    }
+    if (this.state.contentSearch && key === "n") {
+      this.jumpContentSearchMatch(1);
+      return;
+    }
+    if (this.state.contentSearch && key === "N") {
+      this.jumpContentSearchMatch(-1);
+      return;
+    }
+    if (this.keybindings.matches(key, "search")) {
+      this.openSearch();
       return;
     }
     if (this.state.mode === "topic") {
@@ -302,32 +325,52 @@ export class TuiController {
 
   private handleSearchKey(key: string): void {
     if (this.keybindings.matches(key, "searchClose")) {
-      this.closeSearch();
+      this.closeSearch(this.state.searchMode === "content" && key === "/");
       return;
     }
     if (this.keybindings.matches(key, "searchToggleMode")) {
-      this.state.searchMode = this.state.searchMode === "topics" ? "users" : "topics";
-      this.state.searchResults = [];
-      this.state.itemIndex = 0;
+      this.switchSearchMode();
+      return;
+    }
+    if (this.state.searchMode === "topics" && this.canUseBoardSearchScope()) {
+      if (key === "\x1b[D" || key === "\x1b[C") {
+        this.toggleTopicSearchScope();
+        return;
+      }
+    }
+    if (this.keybindings.matches(key, "searchNext") && this.state.searchResults.length > 0) {
+      this.state.searchIndex = Math.min(this.state.searchResults.length - 1, this.state.searchIndex + 1);
+      if (this.state.searchIndex >= this.state.searchResults.length - 3) {
+        void this.loadNextSearchPage(this.nextSignal());
+      }
       this.render();
       return;
     }
-    if (this.keybindings.matches(key, "searchNext") && this.state.searchResults.length > 0) {
-      this.state.itemIndex = Math.min(this.state.searchResults.length - 1, this.state.itemIndex + 1);
-      this.render();
+    if (this.keybindings.matches(key, "searchNext") && this.canLoadMoreSearch()) {
+      void this.loadNextSearchPage(this.nextSignal());
       return;
     }
     if (this.keybindings.matches(key, "searchPrev") && this.state.searchResults.length > 0) {
-      this.state.itemIndex = Math.max(0, this.state.itemIndex - 1);
+      this.state.searchIndex = Math.max(0, this.state.searchIndex - 1);
       this.render();
       return;
     }
     if (this.keybindings.matches(key, "searchExecute")) {
-      const selected = this.state.searchResults[this.state.itemIndex];
+      if (this.state.searchMode === "content") {
+        this.finishContentSearchInput();
+        return;
+      }
+      const selected = this.state.searchResults[this.state.searchIndex];
       if (selected) {
+        if (selected.searchTarget) {
+          this.activateContentSearchResult(selected);
+          return;
+        }
         // 有选中项：打开
         this.restoreSearchOriginForActivation();
         void this.activateContentItem(selected, this.nextSignal());
+      } else if (this.state.searchSubmitted && this.canLoadMoreSearch()) {
+        void this.loadNextSearchPage(this.nextSignal());
       } else if (this.state.searchQuery.trim()) {
         // 无选中项：执行搜索
         void this.performSearch(this.nextSignal());
@@ -337,16 +380,48 @@ export class TuiController {
     if (key === "\x7f") {
       this.state.searchQuery = this.state.searchQuery.slice(0, -1);
       this.state.searchResults = [];
-      this.state.itemIndex = 0;
+      this.state.searchSubmitted = false;
+      this.state.searchIndex = 0;
+      this.state.searchPaging = undefined;
+      if (this.state.searchMode === "content") this.updateContentSearchFromQuery();
       this.render();
       return;
     }
     if (key.length === 1 && key >= " ") {
       this.state.searchQuery += key;
       this.state.searchResults = [];
-      this.state.itemIndex = 0;
+      this.state.searchSubmitted = false;
+      this.state.searchIndex = 0;
+      this.state.searchPaging = undefined;
+      if (this.state.searchMode === "content") this.updateContentSearchFromQuery();
       this.render();
     }
+  }
+
+  private switchSearchMode(): void {
+    const order: SearchMode[] = ["topics", "users", "content"];
+    const current = Math.max(0, order.indexOf(this.state.searchMode));
+    this.state.searchMode = order[(current + 1) % order.length] ?? "topics";
+    if (this.state.searchMode !== "topics") {
+      this.state.topicSearchScope = "global";
+    } else if (this.state.topicSearchScope === "board" && !this.canUseBoardSearchScope()) {
+      this.state.topicSearchScope = "global";
+    }
+    this.state.searchResults = [];
+    this.state.searchSubmitted = false;
+    this.state.searchIndex = 0;
+    this.state.searchPaging = undefined;
+    if (this.state.searchMode === "content") this.updateContentSearchFromQuery();
+    this.render();
+  }
+
+  private toggleTopicSearchScope(): void {
+    this.state.topicSearchScope = this.state.topicSearchScope === "board" ? "global" : "board";
+    this.state.searchResults = [];
+    this.state.searchSubmitted = false;
+    this.state.searchIndex = 0;
+    this.state.searchPaging = undefined;
+    this.render();
   }
 
   private handleUserModalKey(key: string): void {
@@ -407,14 +482,80 @@ export class TuiController {
 
   private executeMenuItem(selected: MenuItem): void {
     this.state.modal = null;
-    if (selected.action === "refresh") void this.refresh();
-    if (selected.action === "back") this.leave();
-    if (selected.action === "reply") {
-      if (this.state.mode === "topic") {
-        void this.startTopicReply();
-      } else if (this.state.currentChat) {
-        this.startMessageReply();
+    switch (selected.action) {
+      case "refresh":
+        void this.refresh();
+        break;
+      case "back":
+        this.leave();
+        break;
+      case "reply":
+        if (this.state.mode === "topic") {
+          void this.startTopicReply();
+        } else if (this.state.currentChat) {
+          this.startMessageReply();
+        }
+        break;
+      case "open-selected": {
+        const item = this.state.items[this.state.itemIndex];
+        if (item) void this.activateContentItem(item, this.nextSignal());
+        break;
       }
+      case "topic-favorite":
+        void this.toggleFavorite();
+        break;
+      case "selected-topic-favorite": {
+        const topicId = this.state.items[this.state.itemIndex]?.topicId;
+        if (topicId !== undefined) void this.toggleTopicFavorite(topicId);
+        break;
+      }
+      case "selected-board-favorite": {
+        const boardId = this.state.items[this.state.itemIndex]?.boardId;
+        if (boardId !== undefined) void this.toggleBoardFavorite(boardId);
+        break;
+      }
+      case "current-board-favorite":
+        if (this.state.currentBoard) void this.toggleBoardFavorite(this.state.currentBoard.boardId);
+        break;
+      case "post-like":
+        void this.reactToCurrentPost(true);
+        break;
+      case "post-dislike":
+        void this.reactToCurrentPost(false);
+        break;
+      case "post-reaction":
+        void this.showPostReactionState(this.nextSignal());
+        break;
+      case "post-user":
+        void this.showCurrentUser(this.nextSignal());
+        break;
+      case "selected-user": {
+        const userId = this.state.items[this.state.itemIndex]?.userId;
+        if (userId !== undefined) void this.showUserDetailById(userId, this.nextSignal());
+        break;
+      }
+      case "topic-vote":
+        void this.showTopicVote(this.nextSignal());
+        break;
+      case "image-open": {
+        const line = this.getCurrentTopicLine();
+        if (line?.kind === "image" && line.imageUrl) void this.openImage(line.imageUrl);
+        break;
+      }
+      case "image-copy": {
+        const line = this.getCurrentTopicLine();
+        if (line?.kind === "image" && line.imageUrl) void this.copyImageToClipboard(line.imageUrl);
+        break;
+      }
+      case "link-copy": {
+        const line = this.getCurrentTopicLine();
+        if (line?.kind === "link" && line.linkUrl) void this.copyToClipboard(line.linkUrl);
+        break;
+      }
+      case "search-topics":
+      case "search-users":
+        this.openSearch();
+        break;
     }
     this.render();
   }
@@ -656,7 +797,6 @@ export class TuiController {
       return;
     }
     if (this.keybindings.matches(key, "listRefresh")) void this.refresh();
-    if (this.keybindings.matches(key, "search")) this.openSearch();
     if (this.keybindings.matches(key, "menu")) this.openMenu();
   }
 
@@ -784,6 +924,7 @@ export class TuiController {
     try {
       const nextItems = await this.fetchNextListPage(paging, signal);
       this.state.items.push(...nextItems);
+      this.refreshContentSearchMatches();
       paging.loaded += nextItems.length;
       if (paging.kind !== "favorite-board-topics") {
         paging.hasMore = nextItems.length >= paging.size;
@@ -869,24 +1010,36 @@ export class TuiController {
     }
   }
 
-  private openSearch(): void {
+  private openSearch(mode: SearchMode = "topics"): void {
+    const boardScope = this.getBoardSearchScope();
     this.state.modal = "search";
     this.state.searchOrigin = { itemIndex: this.state.itemIndex, scroll: this.state.scroll };
     this.state.searchQuery = "";
     this.state.searchResults = [];
-    this.state.searchMode = "topics";
-    this.state.searchScope = this.getSearchScope();
-    this.state.itemIndex = 0;
+    this.state.searchIndex = 0;
+    this.state.searchLoading = false;
+    this.state.searchPaging = undefined;
+    this.state.searchMode = mode;
+    this.state.topicSearchScope = "global";
+    this.state.searchScope = { label: "全站" };
+    this.state.searchBoardScope = boardScope;
+    this.state.searchSubmitted = false;
     this.render();
   }
 
-  private closeSearch(): void {
+  private closeSearch(keepContentSearch = false): void {
     const origin = this.state.searchOrigin;
     this.state.modal = null;
     this.state.searchOrigin = undefined;
     this.state.searchQuery = "";
     this.state.searchResults = [];
-    if (origin) {
+    this.state.searchIndex = 0;
+    this.state.searchLoading = false;
+    this.state.searchPaging = undefined;
+    this.state.searchBoardScope = undefined;
+    this.state.searchSubmitted = false;
+    if (!keepContentSearch) this.state.contentSearch = undefined;
+    if (origin && !keepContentSearch) {
       this.state.itemIndex = origin.itemIndex;
       this.state.scroll = origin.scroll;
     }
@@ -899,18 +1052,31 @@ export class TuiController {
     this.state.searchOrigin = undefined;
     this.state.searchQuery = "";
     this.state.searchResults = [];
+    this.state.searchIndex = 0;
+    this.state.searchLoading = false;
+    this.state.searchPaging = undefined;
+    this.state.searchBoardScope = undefined;
+    this.state.searchSubmitted = false;
+    this.state.contentSearch = undefined;
     if (origin) {
       this.state.itemIndex = origin.itemIndex;
       this.state.scroll = origin.scroll;
     }
   }
 
-  private getSearchScope(): { label: string; boardId?: number } {
-    // 根据当前位置确定搜索范围
+  private getBoardSearchScope(): { label: string; boardId: number } | undefined {
     if (this.state.currentBoard) {
       return { label: this.state.currentBoard.title, boardId: this.state.currentBoard.boardId };
     }
-    return { label: "全站" };
+    const topic = this.state.topic;
+    if (topic?.boardId !== undefined) {
+      return { label: topic.boardTitle ?? "当前版面", boardId: topic.boardId };
+    }
+    return undefined;
+  }
+
+  private canUseBoardSearchScope(): boolean {
+    return this.state.searchBoardScope !== undefined;
   }
 
   private openMenu(): void {
@@ -922,16 +1088,66 @@ export class TuiController {
 
   private getMenuItems(): MenuItem[] {
     if (this.state.mode === "topic") {
-      return [
-        { label: "回复", key: "R", action: "reply" },
+      const topic = this.state.topic;
+      const post = topic ? currentTopicPost(topic, topic.cursorLine) : undefined;
+      const line = topic ? currentTopicLine(topic, topic.cursorLine) : undefined;
+      const items: MenuItem[] = [
+        { label: "主题 / 回复", key: "R", action: "reply" },
+        { label: "主题 / 收藏或取消收藏", key: "s", action: "topic-favorite" },
+        { label: "主题 / 投票信息", key: "v", action: "topic-vote" }
+      ];
+
+      if (post?.id) {
+        items.push(
+          { label: "楼层 / 点赞", key: "l", action: "post-like" },
+          { label: "楼层 / 踩", key: "d", action: "post-dislike" },
+          { label: "楼层 / 赞踩与评分", key: "a", action: "post-reaction" }
+        );
+      }
+      if (post?.userId) {
+        items.push({ label: "用户 / 信息与关注", key: "u", action: "post-user" });
+      }
+      if (line?.kind === "image" && line.imageUrl) {
+        items.push(
+          { label: "图片 / 打开", key: "O", action: "image-open" },
+          { label: "图片 / 复制", key: "c", action: "image-copy" }
+        );
+      } else if (line?.kind === "link" && line.linkUrl) {
+        items.push({ label: "链接 / 复制 URL", key: "c", action: "link-copy" });
+      }
+      items.push(
+        { label: "搜索", key: "/", action: "search-topics" },
         { label: "刷新", key: "r", action: "refresh" },
         { label: "返回列表", key: "h", action: "back" }
-      ];
+      );
+      return items;
     }
     if (this.state.mode === "list") {
-      const items = [{ label: "刷新", key: "r", action: "refresh" }];
-      if (this.state.currentChat) items.unshift({ label: "回复", key: "R", action: "reply" });
-      if (this.state.currentBoard) items.push({ label: "返回版面列表", key: "h", action: "back" });
+      const selected = this.state.items[this.state.itemIndex];
+      const items: MenuItem[] = [];
+      if (selected?.topicId !== undefined || selected?.boardId !== undefined || selected?.userId !== undefined || selected?.action) {
+        items.push({ label: "当前 / 打开", key: "↵", action: "open-selected" });
+      }
+      if (selected?.topicId !== undefined) {
+        items.push({ label: "主题 / 收藏或取消收藏", key: "s", action: "selected-topic-favorite" });
+      }
+      if (selected?.boardId !== undefined && selected.boardId !== this.state.currentBoard?.boardId) {
+        items.push({ label: "版面 / 收藏或取消收藏", key: "b", action: "selected-board-favorite" });
+      }
+      if (selected?.userId !== undefined) {
+        items.push({ label: "用户 / 信息与关注", key: "u", action: "selected-user" });
+      }
+      if (this.state.currentBoard) {
+        items.push(
+          { label: "版面 / 收藏或取消收藏", key: "B", action: "current-board-favorite" },
+          { label: "搜索", key: "/", action: "search-topics" }
+        );
+      } else {
+        items.push({ label: "搜索", key: "/", action: "search-topics" });
+      }
+      if (this.state.currentChat) items.unshift({ label: "私信 / 回复", key: "R", action: "reply" });
+      items.push({ label: "刷新", key: "r", action: "refresh" });
+      if (this.state.currentBoard || this.state.parentList) items.push({ label: "返回", key: "h", action: "back" });
       return items;
     }
     return [];
@@ -1389,6 +1605,7 @@ export class TuiController {
         this.client.getTopicPosts(topicId, from, size, force, signal)
       ]);
       this.state.topic = buildTopicReader(topicId, asObject(topicRaw), asArray(postsRaw), size, from);
+      void this.hydrateTopicBoardTitle(this.state.topic, force, signal);
       const draft = await this.settingsStore.getTopicReplyDraft(topicId);
       if (draft) {
         this.state.compose = {
@@ -1422,6 +1639,22 @@ export class TuiController {
     if (!topic) return;
     const restore = this.getTopicRestoreTarget(topic);
     await this.openTopic(topic.topicId, true, signal, restore);
+  }
+
+  private async hydrateTopicBoardTitle(topic: TopicReaderState, force: boolean, signal: AbortSignal): Promise<void> {
+    if (topic.boardTitle || topic.boardId === undefined) return;
+    try {
+      const raw = asObject(await this.client.getBoardInfo(topic.boardId, force, signal));
+      const title = normalizeInline(String(raw.name ?? raw.Name ?? raw.title ?? raw.Title ?? ""));
+      if (!title || signal.aborted || this.state.topic !== topic) return;
+      topic.boardTitle = title;
+      topic.meta = [title, ...topic.meta.split(" · ").filter((value) => value && !/^#\d+$/.test(value))].join(" · ");
+      this.render();
+    } catch (error) {
+      if (!isAbortError(error)) {
+        // Board names are auxiliary here; keep the topic readable if mapping fails.
+      }
+    }
   }
 
   private getTopicRestoreTarget(topic: TopicReaderState): TopicRestoreTarget {
@@ -1644,6 +1877,7 @@ export class TuiController {
     try {
       const posts = asArray(await this.client.getTopicPosts(topic.topicId, from, topic.size, false, signal));
       replaceTopicPosts(topic, posts, from);
+      this.refreshContentSearchMatches();
       topic.hasMore = from + posts.length < topic.totalFloors;
       this.state.scroll = 0;
       this.state.status = "";
@@ -1664,6 +1898,7 @@ export class TuiController {
     try {
       const posts = asArray(await this.client.getTopicPosts(topic.topicId, topic.loaded, topic.size, false, signal));
       appendTopicPosts(topic, posts);
+      this.refreshContentSearchMatches();
       this.state.status = "";
       void this.preloadTopicImages(topic);
     } catch (error) {
@@ -1766,44 +2001,249 @@ export class TuiController {
   private async performSearch(signal: AbortSignal): Promise<void> {
     const query = this.state.searchQuery.trim();
     if (!query) return;
-    this.state.loading = true;
+    if (this.state.searchMode === "content") {
+      this.state.searchResults = this.searchLoadedContent(query);
+      this.state.searchIndex = 0;
+      this.render();
+      return;
+    }
+    const size = 20;
+    this.state.searchResults = [];
+    this.state.searchIndex = 0;
+    this.state.searchPaging = {
+      query,
+      mode: this.state.searchMode,
+      from: 0,
+      size,
+      hasMore: true
+    };
+    this.state.searchSubmitted = true;
+    await this.loadNextSearchPage(signal);
+  }
+
+  private canLoadMoreSearch(): boolean {
+    return Boolean(this.state.searchPaging?.hasMore && !this.state.searchLoading && this.state.searchMode !== "content");
+  }
+
+  private async loadNextSearchPage(signal: AbortSignal): Promise<void> {
+    const paging = this.state.searchPaging;
+    if (!paging?.hasMore || this.state.searchLoading) return;
+    this.state.searchLoading = true;
     this.render();
     try {
-      const results = this.state.searchMode === "topics"
-        ? this.filterSearchTopicScope(asArray(await this.client.searchTopics(query, 0, 20, true, signal)).map((topic) => topicItem(topic)))
-        : asArray(await this.client.searchUsers(query, true, signal)).map((user) => userItem(user));
-      this.state.searchResults = results;
-      this.state.itemIndex = 0;
+      let appended = 0;
+      let rawCount = 0;
+      for (let page = 0; page < 3 && paging.hasMore && appended === 0; page += 1) {
+        const next = await this.fetchSearchPage(paging, signal);
+        rawCount = next.rawCount;
+        this.state.searchResults.push(...next.items);
+        appended += next.items.length;
+        paging.from += paging.mode === "topics" ? paging.size : next.rawCount;
+        paging.hasMore = paging.mode === "topics" && next.rawCount >= paging.size;
+      }
+      this.state.searchSubmitted = true;
+      this.state.status = paging.hasMore ? "" : rawCount === 0 || appended === 0 ? "搜索结果已到底" : "";
     } catch (error) {
       if (!isAbortError(error)) this.state.status = error instanceof Error ? error.message : "搜索失败";
     } finally {
-      this.state.loading = false;
+      this.state.searchLoading = false;
       this.render();
     }
   }
 
-  private filterSearchTopicScope(items: ContentItem[]): ContentItem[] {
-    const boardId = this.state.searchScope.boardId;
-    if (boardId === undefined) {
+  private async fetchSearchPage(paging: SearchPagingState, signal: AbortSignal): Promise<SearchPageResult> {
+    if (paging.mode === "topics") {
+      const rawTopics = asArray(await this.client.searchTopics(paging.query, paging.from, paging.size, true, signal));
+      const topics = rawTopics.map((topic) => topicItem(topic));
+      return { items: this.filterTopicSearchScope(topics), rawCount: rawTopics.length };
+    }
+    const rawUsers = asArray(await this.client.searchUsers(paging.query, true, signal));
+    return { items: rawUsers.map((user) => userItem(user)), rawCount: rawUsers.length };
+  }
+
+  private filterTopicSearchScope(items: ContentItem[]): ContentItem[] {
+    if (this.state.topicSearchScope !== "board") {
       return items;
     }
+    const boardId = this.state.searchBoardScope?.boardId;
+    if (boardId === undefined) return items;
     return items.filter((item) => item.boardId === boardId);
+  }
+
+  private searchLoadedContent(query: string): ContentItem[] {
+    return this.buildContentSearch(query).matches.map((match) => this.contentSearchItem(match));
+  }
+
+  private buildContentSearch(query: string): ContentSearchState {
+    const needle = query.toLocaleLowerCase();
+    const matches: ContentSearchState["matches"] = [];
+    if (!needle) return { query, matches, index: 0 };
+
+    if (this.state.mode === "topic" && this.state.topic) {
+      for (let index = 0; index < this.state.topic.lines.length; index += 1) {
+        const text = normalizeInline(stripAnsi(this.state.topic.lines[index] ?? ""));
+        if (text.toLocaleLowerCase().includes(needle)) matches.push({ kind: "topic", index });
+      }
+      return { query, matches, index: 0 };
+    }
+
+    for (let index = 0; index < this.state.items.length; index += 1) {
+      const itemValue = this.state.items[index];
+      const text = normalizeInline([itemValue?.title, itemValue?.meta, itemValue?.detail].filter(Boolean).join(" "));
+      if (text.toLocaleLowerCase().includes(needle)) matches.push({ kind: "list", index });
+    }
+    return { query, matches, index: 0 };
+  }
+
+  private contentSearchItem(match: ContentSearchState["matches"][number]): ContentItem {
+    if (match.kind === "topic" && this.state.topic) {
+      const text = normalizeInline(stripAnsi(this.state.topic.lines[match.index] ?? ""));
+      const post = currentTopicPost(this.state.topic, match.index);
+      return {
+        title: text || `第 ${match.index + 1} 行`,
+        meta: post?.floor !== undefined ? `#${post.floor} 楼` : `第 ${match.index + 1} 行`,
+        searchTarget: match
+      };
+    }
+    const item = this.state.items[match.index];
+    return {
+      title: item?.title ?? `第 ${match.index + 1} 项`,
+      meta: item?.meta,
+      detail: item?.detail,
+      searchTarget: match
+    };
+  }
+
+  private updateContentSearchFromQuery(): void {
+    const query = this.state.searchQuery.trim();
+    if (!query) {
+      this.state.contentSearch = undefined;
+      return;
+    }
+    this.state.contentSearch = this.buildContentSearch(query);
+    this.activateCurrentContentSearchMatch(false);
+  }
+
+  private refreshContentSearchMatches(): void {
+    const current = this.state.contentSearch;
+    if (!current) return;
+    const previous = current.matches[current.index];
+    const next = this.buildContentSearch(current.query);
+    const preservedIndex = previous
+      ? next.matches.findIndex((match) => match.kind === previous.kind && match.index === previous.index)
+      : -1;
+    next.index = preservedIndex >= 0 ? preservedIndex : Math.min(current.index, Math.max(0, next.matches.length - 1));
+    this.state.contentSearch = next.matches.length > 0 ? next : undefined;
+  }
+
+  private finishContentSearchInput(): void {
+    this.updateContentSearchFromQuery();
+    if (!this.state.contentSearch || this.state.contentSearch.matches.length === 0) {
+      this.state.status = "无匹配";
+      this.render();
+      return;
+    }
+    this.state.modal = null;
+    this.state.searchOrigin = undefined;
+    this.state.searchQuery = "";
+    this.state.searchResults = [];
+    this.state.searchBoardScope = undefined;
+    this.state.searchSubmitted = false;
+    this.state.status = `${this.state.contentSearch.index + 1}/${this.state.contentSearch.matches.length} 匹配  n/N 跳转  Esc 清除`;
+    this.render();
+  }
+
+  private jumpContentSearchMatch(delta: number): void {
+    this.refreshContentSearchMatches();
+    const search = this.state.contentSearch;
+    if (!search || search.matches.length === 0) {
+      this.state.status = "无匹配";
+      this.render();
+      return;
+    }
+    search.index = (search.index + delta + search.matches.length) % search.matches.length;
+    this.activateCurrentContentSearchMatch(true);
+  }
+
+  private activateCurrentContentSearchMatch(render = true): void {
+    const search = this.state.contentSearch;
+    const match = search?.matches[search.index];
+    if (!search || !match) {
+      if (render) this.render();
+      return;
+    }
+    if (match.kind === "topic" && this.state.topic) {
+      this.state.topic.cursorLine = Math.min(Math.max(0, match.index), Math.max(0, this.state.topic.lines.length - 1));
+      this.state.scroll = this.state.topic.cursorLine;
+    } else if (match.kind === "list") {
+      this.state.focus = "content";
+      this.state.itemIndex = Math.min(Math.max(0, match.index), Math.max(0, this.state.items.length - 1));
+    }
+    this.state.status = `${search.index + 1}/${search.matches.length} 匹配  n/N 跳转  Esc 清除`;
+    if (render) this.render();
+  }
+
+  private clearContentSearch(): void {
+    this.state.contentSearch = undefined;
+    this.state.status = "";
+    this.render();
+  }
+
+  private activateContentSearchResult(selected: ContentItem): void {
+    const target = selected.searchTarget;
+    if (!target) return;
+    this.state.modal = null;
+    this.state.searchOrigin = undefined;
+    this.state.searchQuery = "";
+    this.state.searchResults = [];
+    this.state.searchBoardScope = undefined;
+    if (target.kind === "topic" && this.state.topic) {
+      this.state.topic.cursorLine = Math.min(Math.max(0, target.index), Math.max(0, this.state.topic.lines.length - 1));
+      this.state.scroll = this.state.topic.cursorLine;
+      this.state.status = "已跳到匹配内容";
+    } else if (target.kind === "list") {
+      this.state.focus = "content";
+      this.state.itemIndex = Math.min(Math.max(0, target.index), Math.max(0, this.state.items.length - 1));
+      this.state.status = "已跳到匹配条目";
+    }
+    this.render();
   }
 
   private async toggleFavorite(): Promise<void> {
     const topic = this.state.topic;
     if (!topic) return;
+    await this.toggleTopicFavorite(topic.topicId);
+  }
+
+  private async toggleTopicFavorite(topicId: number): Promise<void> {
     try {
-      const isFavorite = await this.client.isTopicFavorite(topic.topicId, true);
+      const isFavorite = await this.client.isTopicFavorite(topicId, true);
       if (isFavorite) {
-        await this.client.removeFavorite(topic.topicId);
+        await this.client.removeFavorite(topicId);
         this.state.status = "已取消收藏";
       } else {
-        await this.client.addFavorite(topic.topicId);
+        await this.client.addFavorite(topicId);
         this.state.status = "已收藏";
       }
     } catch (error) {
       this.state.status = error instanceof Error ? error.message : "收藏操作失败";
+    }
+    this.render();
+  }
+
+  private async toggleBoardFavorite(boardId: number): Promise<void> {
+    try {
+      const me = asObject(await this.client.getMe(true, this.nextSignal()));
+      const customBoards = asArray(me.customBoards).filter((id): id is number => typeof id === "number");
+      if (customBoards.includes(boardId)) {
+        await this.client.removeBoardFavorite(boardId);
+        this.state.status = "已取消收藏版面";
+      } else {
+        await this.client.addBoardFavorite(boardId);
+        this.state.status = "已收藏版面";
+      }
+    } catch (error) {
+      this.state.status = error instanceof Error ? error.message : "版面收藏操作失败";
     }
     this.render();
   }

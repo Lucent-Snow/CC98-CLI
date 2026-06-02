@@ -26,15 +26,19 @@ const statusBar = new StatusBar();
 const keybindings = getKeybindingManager();
 const imagePreviewMarker = "\x00cc98-image-preview\x00";
 
+interface Layout {
+  width: number;
+  height: number;
+  sidebarWidth: number;
+  mainWidth: number;
+  rightWidth: number;
+  overviewHeight: number;
+  bodyHeight: number;
+}
+
 export function draw(state: TuiState, size: { columns: number; rows: number }): string {
-  const width = Math.max(60, size.columns);
-  const height = Math.max(20, size.rows);
-  const sidebarWidth = width < 90 ? 14 : 18;
-  const rightWidth = width < 78 ? 0 : Math.min(42, Math.max(34, Math.floor(width * 0.30)));
-  const mainWidth = width - sidebarWidth - rightWidth - (rightWidth > 0 ? 2 : 1);
-  const overviewHeight = 1; // overview 现在只返回一行数据
-  // 计算主体区域高度：总高度 - header - top border - overview - separator - bottom border - status bar
-  const bodyHeight = height - 5 - overviewHeight;
+  const layout = calculateLayout(size);
+  const { width, height, sidebarWidth, mainWidth, rightWidth, overviewHeight, bodyHeight } = layout;
   const lines: string[] = [];
 
   lines.push(header.render(state, width));
@@ -161,6 +165,47 @@ export function draw(state: TuiState, size: { columns: number; rows: number }): 
     output += overlays.join("") + moveTo(height, 1);
   }
   return output;
+}
+
+function calculateLayout(size: { columns: number; rows: number }): Layout {
+  const width = Math.max(60, size.columns);
+  const height = Math.max(20, size.rows);
+  const sidebarWidth = width < 90 ? 14 : 18;
+  const overviewHeight = 1; // overview 现在只返回一行数据
+  // 计算主体区域高度：总高度 - header - top border - overview - separator - bottom border - status bar
+  const bodyHeight = height - 5 - overviewHeight;
+
+  const minMainWidth = 34;
+  const minRightWidth = 20;
+  const maxRightWidth = 42;
+  const preferredRightWidth = Math.min(maxRightWidth, Math.max(minRightWidth, Math.floor(width * 0.28)));
+
+  // Pane widths include their border cells. Shared separators mean:
+  // - two panes: sidebar + main - 1 === total width
+  // - three panes: sidebar + main + right - 2 === total width
+  const mainAndRightWidth = width - sidebarWidth + 2;
+  if (mainAndRightWidth < minMainWidth + minRightWidth) {
+    return {
+      width,
+      height,
+      sidebarWidth,
+      mainWidth: width - sidebarWidth + 1,
+      rightWidth: 0,
+      overviewHeight,
+      bodyHeight
+    };
+  }
+
+  const rightWidth = Math.min(preferredRightWidth, mainAndRightWidth - minMainWidth);
+  return {
+    width,
+    height,
+    sidebarWidth,
+    mainWidth: mainAndRightWidth - rightWidth,
+    rightWidth,
+    overviewHeight,
+    bodyHeight
+  };
 }
 
 function drawRight(state: TuiState, width: number, height: number): string[] {
@@ -485,31 +530,70 @@ function drawInfoModal(baseLines: string[], state: TuiState, width: number, heig
 }
 
 function drawSearchModal(baseLines: string[], state: TuiState, width: number, height: number): string {
-  const scopeLabel = state.searchScope?.label ?? "全站";
+  const modeLabel = [
+    state.searchMode === "topics" ? "[帖子]" : " 帖子 ",
+    state.searchMode === "users" ? "[用户]" : " 用户 ",
+    state.searchMode === "content" ? "[内容]" : " 内容 "
+  ].join("  ");
   const rows = [
     `${cc98Blue}${ansi.bold}搜索${ansi.reset}`,
     "",
-    `范围: ${scopeLabel}`,
-    `模式: ${state.searchMode === "topics" ? "● 帖子  ○ 用户" : "○ 帖子  ● 用户"}  Tab 切换`,
-    `> ${state.searchQuery}${state.loading ? " ..." : "_"}`,
+    `类型: ${modeLabel}`,
+    searchScopeLine(state),
+    `> ${state.searchQuery}${state.searchLoading ? " ..." : "_"}`,
     ""
   ];
 
-  const maxResults = Math.max(1, Math.floor((height - 14) / 2));
-  const selectedIndex = Math.min(Math.max(0, state.itemIndex), Math.max(0, state.searchResults.length - 1));
-  const resultStart = Math.max(0, Math.min(selectedIndex - maxResults + 1, state.searchResults.length - maxResults));
-  const visibleResults = state.searchResults.slice(resultStart, resultStart + maxResults);
-  for (let offset = 0; offset < visibleResults.length; offset += 1) {
-    const item = visibleResults[offset];
-    const index = resultStart + offset;
-    const active = index === selectedIndex;
-    const prefix = active ? `${ok}●${ansi.reset}` : `${muted}•${ansi.reset}`;
-    rows.push(active ? `${bg(5, 46, 74)}${prefix} ${item.title}${ansi.reset}` : `${prefix} ${item.title}`);
-    if (item.meta) rows.push(`${muted}  ${item.meta}${ansi.reset}`);
+  if (state.searchMode === "content") {
+    if (state.contentSearch && state.contentSearch.matches.length > 0) {
+      rows.push(`${muted}${state.contentSearch.index + 1}/${state.contentSearch.matches.length} 匹配${ansi.reset}`);
+    }
+  } else {
+    const maxResults = Math.max(1, Math.floor((height - 14) / 2));
+    const selectedIndex = Math.min(Math.max(0, state.searchIndex), Math.max(0, state.searchResults.length - 1));
+    const resultStart = Math.max(0, Math.min(selectedIndex - maxResults + 1, state.searchResults.length - maxResults));
+    const visibleResults = state.searchResults.slice(resultStart, resultStart + maxResults);
+    for (let offset = 0; offset < visibleResults.length; offset += 1) {
+      const item = visibleResults[offset];
+      const index = resultStart + offset;
+      const active = index === selectedIndex;
+      const prefix = active ? `${ok}●${ansi.reset}` : `${muted}•${ansi.reset}`;
+      rows.push(active ? `${bg(5, 46, 74)}${prefix} ${item.title}${ansi.reset}` : `${prefix} ${item.title}`);
+      if (item.meta) rows.push(`${muted}  ${item.meta}${ansi.reset}`);
+    }
+    if (state.searchLoading && state.searchResults.length > 0) rows.push(`${muted}加载更多...${ansi.reset}`);
+    if (state.searchLoading && state.searchResults.length === 0) rows.push(`${muted}搜索中...${ansi.reset}`);
+    if (!state.searchLoading && state.searchResults.length === 0 && state.searchQuery && state.searchSubmitted) {
+      rows.push(`${muted}${state.searchPaging?.hasMore ? "继续搜索..." : "无结果"}${ansi.reset}`);
+    }
   }
-  if (state.searchResults.length === 0 && state.searchQuery && !state.loading) rows.push(`${muted}无结果${ansi.reset}`);
-  rows.push("", `${muted}Enter 搜索/打开  Tab 切换  / 关闭${ansi.reset}`);
+  rows.push("", `${muted}${searchHintLine(state)}${ansi.reset}`);
   return overlay(baseLines, width, height, Math.min(62, width - 4), rows);
+}
+
+function searchHintLine(state: TuiState): string {
+  if (state.searchMode === "content") {
+    return "Enter 保留高亮  n/N 跳转  Esc 清除";
+  }
+  const scopeHint = state.searchMode === "topics" && state.searchBoardScope ? "  ←/→ 切范围" : "";
+  return `Enter 搜索/打开  Tab 切换${scopeHint}  / 关闭`;
+}
+
+function searchScopeLine(state: TuiState): string {
+  if (state.searchMode === "users") {
+    return "范围: 全站用户";
+  }
+  if (state.searchMode === "content") {
+    return "范围: 中栏已加载内容";
+  }
+  if (!state.searchBoardScope) {
+    return "范围: [全站]";
+  }
+  const global = state.topicSearchScope === "global" ? "[全站]" : " 全站 ";
+  const board = state.topicSearchScope === "board"
+    ? `[当前版面: ${state.searchBoardScope.label}]`
+    : ` 当前版面: ${state.searchBoardScope.label} `;
+  return `范围: ${global}  ${board}`;
 }
 
 function drawUserDetailModal(baseLines: string[], state: TuiState, width: number, height: number): string {
@@ -546,9 +630,9 @@ function overlay(baseLines: string[], width: number, height: number, modalWidth:
     const row = startRow + index;
     if (row >= result.length) break;
     const raw = index === 0 || index === modalHeight - 1 ? "" : content[index - 1] ?? "";
-    const padded = fit(raw, modalWidth);
+    const padded = fit(stripAnsi(raw), modalWidth);
     const block = `${bg(5, 46, 74)}${padded}${ansi.reset}`;
-    result[row] = replaceCells(result[row] ?? "", startCol, modalWidth, block);
+    result[row] = fit(replaceCells(result[row] ?? "", startCol, modalWidth, block), width);
   }
 
   return result.slice(0, height).join("\n");
@@ -556,7 +640,31 @@ function overlay(baseLines: string[], width: number, height: number, modalWidth:
 
 function replaceCells(value: string, start: number, width: number, replacement: string): string {
   const plain = stripAnsi(value);
-  const before = plain.slice(0, start);
-  const after = plain.slice(start + width);
+  const before = takeCells(plain, 0, start);
+  const after = takeCells(plain, start + width, cellWidth(plain));
   return `${before}${replacement}${after}`;
+}
+
+function takeCells(value: string, start: number, end: number): string {
+  let output = "";
+  let position = 0;
+
+  for (const char of value) {
+    const next = position + cellWidth(char);
+    if (next <= start) {
+      position = next;
+      continue;
+    }
+    if (position >= end) {
+      break;
+    }
+    if (position < start || next > end) {
+      output += " ".repeat(Math.max(0, Math.min(next, end) - Math.max(position, start)));
+    } else {
+      output += char;
+    }
+    position = next;
+  }
+
+  return output;
 }

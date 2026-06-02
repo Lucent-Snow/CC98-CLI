@@ -4,7 +4,8 @@ export type ViewId = "hot" | "new" | "following" | "boards" | "favorite" | "mess
 export type FocusColumn = "nav" | "content";
 export type ModalType = "menu" | "help" | "search" | "user" | "info" | null;
 export type TabId = "default" | "new-latest" | "new-random" | "new-recommendation" | "follow-boards" | "follow-users" | "follow-favorites" | "posts" | "boards" | "chat" | "notices" | "history" | "followers" | "followees" | "favorites" | "signin" | "my-topics";
-export type SearchMode = "topics" | "users";
+export type SearchMode = "topics" | "users" | "content";
+export type TopicSearchScope = "global" | "board";
 export type NoticeType = "system" | "at" | "reply";
 
 export interface NavItem {
@@ -24,6 +25,13 @@ export interface ContentItem {
   userId?: number;
   action?: string;
   sortTime?: number;
+  searchTarget?: { kind: "list" | "topic"; index: number };
+}
+
+export interface ContentSearchState {
+  query: string;
+  matches: { kind: "list" | "topic"; index: number }[];
+  index: number;
 }
 
 export interface MenuItem {
@@ -109,6 +117,8 @@ export interface TopicReaderState {
   topicId: number;
   title: string;
   meta: string;
+  boardId?: number;
+  boardTitle?: string;
   lines: string[];
   posts: TopicPostEntry[];
   loaded: number;
@@ -151,6 +161,14 @@ export interface TopicPostEntry {
 export interface SearchOriginState {
   itemIndex: number;
   scroll: number;
+}
+
+export interface SearchPagingState {
+  query: string;
+  mode: Exclude<SearchMode, "content">;
+  from: number;
+  size: number;
+  hasMore: boolean;
 }
 
 export interface TopicLineEntry {
@@ -204,10 +222,17 @@ export interface TuiState {
 
   // 搜索状态
   searchMode: SearchMode;
+  topicSearchScope: TopicSearchScope;
   searchQuery: string;
   searchResults: ContentItem[];
+  searchIndex: number;
+  searchLoading: boolean;
+  searchPaging?: SearchPagingState;
   searchScope: { label: string; boardId?: number };
+  searchBoardScope?: { label: string; boardId: number };
+  searchSubmitted: boolean;
   searchOrigin?: SearchOriginState;
+  contentSearch?: ContentSearchState;
 
   // 用户详情状态
   userDetail?: UserDetailState;

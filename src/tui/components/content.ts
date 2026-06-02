@@ -2,7 +2,7 @@
 
 import type { TuiState } from "../state/types.js";
 import type { Component } from "./types.js";
-import { ansi, bg, fg } from "../ansi.js";
+import { ansi, bg, fg, stripAnsi } from "../ansi.js";
 import { fit, blank, cellWidth } from "./utils.js";
 
 const cc98Blue = fg(0, 130, 202);
@@ -12,6 +12,8 @@ const muted = fg(139, 152, 166);
 const line = fg(52, 84, 112);
 const danger = fg(245, 101, 101);
 const ok = fg(91, 207, 140);
+const searchMatchBg = bg(72, 59, 24);
+const searchActiveBg = bg(118, 86, 18);
 
 export class Content implements Component {
   visible = true;
@@ -78,12 +80,15 @@ export class Content implements Component {
       const itemValue = visible[i];
       const index = state.scroll + i;
       const active = index === state.itemIndex && (state.focus === "content" || state.mode === "settings");
+      const searchMatch = this.contentSearchMatch(state, "list", index);
       const prefix = active ? `${ok}●${ansi.reset}` : `${muted}•${ansi.reset}`;
       const title = fit(` ${itemValue.title}`, Math.max(10, width - 2));
-      rows.push(active ? `${bg(5, 46, 74)}${prefix}${title}${ansi.reset}` : fit(`${prefix}${title}`, width));
+      const titleRow = fit(`${prefix}${title}`, width);
+      rows.push(this.decorateRow(titleRow, width, searchMatch, active));
 
       if (itemValue.meta && rows.length < height) {
-        rows.push(fit(`  ${muted}${itemValue.meta}${ansi.reset}`, width));
+        const metaRow = fit(`  ${muted}${itemValue.meta}${ansi.reset}`, width);
+        rows.push(this.decorateRow(metaRow, width, searchMatch, false));
       }
     }
 
@@ -136,6 +141,7 @@ export class Content implements Component {
       const bodyLine = body[offset] ?? "";
       const lineIndex = state.scroll + offset;
       const isCursor = lineIndex === topic.cursorLine;
+      const searchMatch = this.contentSearchMatch(state, "topic", lineIndex);
       let renderedLine: string;
 
       const topicLine = this.getTopicLine(topic, lineIndex);
@@ -156,7 +162,7 @@ export class Content implements Component {
       } else {
         renderedLine = ` ${bodyLine}`;
       }
-      rows.push(this.renderTopicLine(renderedLine, width, isCursor));
+      rows.push(this.decorateRow(this.renderTopicLine(renderedLine, width, isCursor), width, searchMatch, false));
     }
 
     const pageInfo = topic.hasMore
@@ -184,5 +190,26 @@ export class Content implements Component {
       }
     }
     return undefined;
+  }
+
+  private contentSearchMatch(state: TuiState, kind: "list" | "topic", index: number): "active" | "match" | undefined {
+    const search = state.contentSearch;
+    if (!search) return undefined;
+    const active = search.matches[search.index];
+    if (active?.kind === kind && active.index === index) return "active";
+    return search.matches.some((match) => match.kind === kind && match.index === index) ? "match" : undefined;
+  }
+
+  private decorateRow(value: string, width: number, searchMatch: "active" | "match" | undefined, selected: boolean): string {
+    if (searchMatch === "active") {
+      return `${searchActiveBg}${fit(stripAnsi(value), width)}${ansi.reset}`;
+    }
+    if (selected) {
+      return `${bg(5, 46, 74)}${fit(stripAnsi(value), width)}${ansi.reset}`;
+    }
+    if (searchMatch === "match") {
+      return `${searchMatchBg}${fit(stripAnsi(value), width)}${ansi.reset}`;
+    }
+    return fit(value, width);
   }
 }

@@ -39,20 +39,23 @@ export function topicItem(value: unknown, fallbackBoard?: ContentItem): ContentI
   const topic = asObject(value);
   const nestedTopic = asObject(topic.topic ?? topic.Topic);
   const source = Object.keys(nestedTopic).length > 0 ? nestedTopic : topic;
-  const topicId = asNumber(source.id ?? source.Id ?? topic.topicId ?? topic.TopicId);
+  const topicId = asNumber(source.topicId ?? source.TopicId ?? source.id ?? source.Id ?? topic.topicId ?? topic.TopicId);
   const boardId = asNumber(source.boardId ?? source.BoardId ?? topic.boardId ?? topic.BoardId) ?? fallbackBoard?.boardId;
   const boardName = topic.boardName ?? topic.BoardName ?? source.boardName ?? source.BoardName ?? fallbackBoard?.title;
+  const titleValue = source.title ?? source.Title ?? source.topicTitle ?? source.TopicTitle ?? topic.title ?? topic.Title ?? topic.topicTitle ?? topic.TopicTitle;
+  const title = normalizeInline(String(titleValue ?? source.content ?? source.Content ?? `#${topicId ?? ""}`));
   return {
-    title: normalizeInline(String(source.title ?? source.Title ?? topic.title ?? topic.Title ?? `#${topicId ?? ""}`)),
+    title: title || `#${topicId ?? "?"}`,
     meta: [
       boardName,
-      source.userName ?? source.UserName ?? source.authorName ?? topic.userName ?? topic.UserName ?? topic.authorName,
+      source.userName ?? source.UserName ?? source.authorName ?? source.AuthorName ?? topic.userName ?? topic.UserName ?? topic.authorName,
       source.replyCount !== undefined ? `${source.replyCount} 回复` : topic.replyCount !== undefined ? `${topic.replyCount} 回复` : undefined,
       source.hitCount !== undefined ? `${source.hitCount} 浏览` : topic.hitCount !== undefined ? `${topic.hitCount} 浏览` : undefined
     ].filter(Boolean).join(" · "),
     detail: normalizeInline(String(source.lastPostContent ?? source.content ?? topic.lastPostContent ?? topic.content ?? "")) || undefined,
     topicId,
     boardId,
+    userId: asNumber(source.userId ?? source.UserId ?? source.authorUserId ?? source.AuthorUserId ?? topic.userId ?? topic.UserId ?? topic.authorUserId),
     sortTime: timestampOf(source.lastPostTime ?? source.updateTime ?? source.time ?? source.createTime ?? topic.lastPostTime ?? topic.updateTime ?? topic.time)
   };
 }

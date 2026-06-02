@@ -32,7 +32,7 @@ export function fit(value: string, width: number): string {
     index += char.length;
   }
 
-  return out;
+  return out + " ".repeat(Math.max(0, width - used));
 }
 
 // 计算字符串的显示宽度
@@ -51,6 +51,16 @@ export function charCellWidth(char: string): number {
     return 0;
   }
   if (
+    code === 0x200d ||
+    (code >= 0x0300 && code <= 0x036f) ||
+    (code >= 0x1ab0 && code <= 0x1aff) ||
+    (code >= 0x1dc0 && code <= 0x1dff) ||
+    (code >= 0x20d0 && code <= 0x20ff) ||
+    (code >= 0xfe00 && code <= 0xfe0f)
+  ) {
+    return 0;
+  }
+  if (
     code >= 0x1100 &&
     (code <= 0x115f ||
       code === 0x2329 ||
@@ -62,6 +72,13 @@ export function charCellWidth(char: string): number {
       (code >= 0xfe30 && code <= 0xfe6f) ||
       (code >= 0xff00 && code <= 0xff60) ||
       (code >= 0xffe0 && code <= 0xffe6))
+  ) {
+    return 2;
+  }
+  if (
+    (code >= 0x2600 && code <= 0x27bf) ||
+    (code >= 0x2b00 && code <= 0x2bff) ||
+    (code >= 0x1f000 && code <= 0x1faff)
   ) {
     return 2;
   }

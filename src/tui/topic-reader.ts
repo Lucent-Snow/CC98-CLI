@@ -10,6 +10,7 @@ export function buildTopicReader(topicId: number, topic: Record<string, unknown>
   const replyCount = asNumber(topic.replyCount);
   const hitCount = asNumber(topic.hitCount);
   const boardName = String(topic.boardName ?? "");
+  const boardId = asNumber(topic.boardId ?? topic.BoardId);
   const totalFloors = Math.max(posts.length, replyCount !== undefined ? replyCount + 1 : posts.length);
   const meta = [
     boardName || undefined,
@@ -22,6 +23,8 @@ export function buildTopicReader(topicId: number, topic: Record<string, unknown>
     topicId,
     title,
     meta,
+    boardId,
+    boardTitle: boardName || undefined,
     lines: rendered.lines,
     posts: rendered.posts,
     loaded: from + posts.length,

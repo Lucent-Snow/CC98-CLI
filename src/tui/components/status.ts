@@ -45,7 +45,11 @@ export class StatusBar implements Component {
       return "Enter 确认  Shift+Enter 换行  Esc 暂停";
     }
     if (state.modal === "search") {
-      return `${this.keys("searchExecute")} 搜索/打开  ${this.keys("searchToggleMode")} 切换  ${this.keys("searchClose")} 关闭`;
+      if (state.searchMode === "content") {
+        return `${this.keys("searchExecute")} 保留高亮  Tab 切类型  n/N 跳转  Esc 清除`;
+      }
+      const scopeHint = state.searchMode === "topics" && state.searchBoardScope ? "  ←/→ 切范围" : "";
+      return `${this.keys("searchExecute")} 搜索/打开  Tab 切类型${scopeHint}  ${this.keys("searchClose")} 关闭`;
     }
     if (state.modal === "menu") {
       return `${this.keys("menuNext")}/${this.keys("menuPrev")} 移动  ${this.keys("menuExecute")} 执行  ${this.keys("menuClose")} 关闭`;

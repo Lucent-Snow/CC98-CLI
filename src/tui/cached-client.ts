@@ -199,6 +199,18 @@ export class CachedCc98Client {
     return result;
   }
 
+  async addBoardFavorite(boardId: number): Promise<unknown> {
+    const result = await this.client.addBoardFavorite(boardId);
+    this.cache.delete("user:me");
+    return result;
+  }
+
+  async removeBoardFavorite(boardId: number): Promise<unknown> {
+    const result = await this.client.removeBoardFavorite(boardId);
+    this.cache.delete("user:me");
+    return result;
+  }
+
   // 点赞/踩
 
   async reactToPost(postId: number, isLike: boolean): Promise<unknown> {
