@@ -103,6 +103,7 @@ Authorization: Bearer <access_token>
 | 端点 | 方法 | 说明 |
 |------|------|------|
 | `/post/{id}/like` | GET | 帖子评分状态 |
+| `/post/{id}/like` | PUT | 点赞/踩 |
 | `/post/rating-reason?type=0` | GET | 评分原因列表 |
 
 ### 配置

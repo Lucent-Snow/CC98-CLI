@@ -215,6 +215,7 @@ export interface TuiState {
 
   // 模态框状态
   modal: ModalType;
+  menuTitle?: string;
   menuIndex: number;
   menuItems: MenuItem[];
   tabId: TabId;

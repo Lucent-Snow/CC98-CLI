@@ -2,15 +2,11 @@
 
 CC98 的命令行客户端，包含面向脚本使用的 CLI 和适合日常浏览的 TUI。
 
-- 直接运行 `cc98`：进入终端界面。
-- 带参数运行 `cc98 <command>`：执行 CLI，默认输出 JSON。
-- 当前主要面向读取场景，TUI 会尽量按需加载和缓存，减少请求。
+- 直接运行 `cc98` 进入终端界面。
+- 带参数运行 `cc98 <command>` 执行 CLI，默认输出 JSON。
+- 支持多账号、本地缓存、WebVPN、帖子搜索、通知、私信、收藏、关注、回复和赞踩等常用操作。
 
-## 概要
-
-vibe coding 累了的话，不妨在终端里水水 98。
-
-这是一个个人兴趣项目，基于 CC98 的公开接口实现，与 CC98 官方无关。请合理使用本工具，避免违反 CC98 的用户协议。
+本项目基于 CC98 的公开接口实现，与 CC98 官方无关。请合理使用本工具，避免违反 CC98 的用户协议。
 
 ## 预览
 
@@ -40,33 +36,64 @@ cc98 account use <name>
 cc98 --account <name> me
 ```
 
+非校园网访问可使用 WebVPN：
+
+```bash
+cc98 vpn login
+cc98 vpn status
+cc98 vpn mode auto
+```
+
 ## TUI
 
 ```bash
 cc98
 ```
 
-常用按键：
-
-```text
-j/k 或 ↑/↓        上下移动
-l 或 →            进入下一层
-h 或 ←            返回上一层
-Enter             确认执行
-/                 搜索（帖子 / 用户 / 内容）
-Tab               切换标签或搜索类型
-r                 刷新
-o                 打开操作菜单
-?                 显示帮助
-n 或 Space        加载更多
-q                 退出
-```
-
 左栏导航包含：十大、新帖、关注、版面、消息、通知、我的、设置。其中“新帖”包含最新、随机、推荐三个标签，“关注”包含关注版面、关注用户、追踪更新三个标签。
 
-搜索分为帖子、用户、内容三类。帖子搜索支持全站搜索，并在版面内或帖子内提供当前版面搜索；内容搜索只搜索当前中栏已加载内容，支持实时高亮和 `n/N` 跳转。
+### 快捷键
 
-当前 TUI 已拆分为入口、控制器、渲染器、组件、状态和帖子阅读器几个模块。`src/tui/app.ts` 只负责终端生命周期和依赖组装，具体按键处理与异步加载在 `controller.ts`，布局渲染在 `renderer.ts` 和 `components/`。
+| 键 | 作用 |
+|----|------|
+| `j/k` 或 `↑/↓` | 上下移动 |
+| `l`、`→` 或 `Enter` | 进入或打开 |
+| `h`、`←` 或 `Esc` | 返回或关闭 |
+| `/` | 搜索帖子、用户或当前内容 |
+| `Tab` / `Shift+Tab` | 切换标签或搜索类型 |
+| `r` | 刷新或换一批 |
+| `R` | 回复当前帖子或私信 |
+| `o` | 打开当前上下文操作菜单 |
+| `?` | 显示帮助 |
+| `q` 或 `Ctrl+C` | 退出 |
+
+帖子阅读页还支持：
+
+| 键 | 作用 |
+|----|------|
+| `{` / `}` | 上一页 / 下一页 |
+| `[` / `]` | 上一楼 / 下一楼 |
+| 数字 + `g` | 跳到指定页 |
+| 数字 + `G` | 跳到指定楼 |
+| `n/N` | 在内容搜索结果间跳转 |
+
+### 操作菜单
+
+帖子阅读页只保留高频导航快捷键，低频和上下文操作统一通过 `o` 菜单进入。
+
+| 菜单 | 操作 |
+|------|------|
+| 楼层 | 赞、踩、打开图片、复制图片、复制链接、复制楼层内容 |
+| 用户 | 查看用户资料 |
+| 帖子 | 收藏/取消收藏、复制帖子链接 |
+
+## 搜索
+
+`/` 打开搜索框后可在三种类型间切换：
+
+- 帖子：全站搜索；在版面内或帖子内可切换为当前版面搜索。
+- 用户：按用户名搜索。
+- 内容：搜索当前中栏已加载内容，支持高亮和 `n/N` 跳转。
 
 ## CLI
 
@@ -74,13 +101,20 @@ CLI 默认输出 JSON，适合配合 `jq` 或脚本使用。
 
 ```bash
 cc98 me
+cc98 me signin
+cc98 forum boards
+cc98 board <board-id>
 cc98 topic <topic-id>
 cc98 topic new
 cc98 topic random
 cc98 topic recommendation
-cc98 board <board-id>
+cc98 topic create <board-id> <title> <content>
+cc98 topic reply <topic-id> <content>
 cc98 search <keyword>
+cc98 user profile <user-id>
+cc98 user search <name>
 cc98 message recent
+cc98 notice system
 cc98 update
 ```
 
@@ -90,7 +124,8 @@ cc98 update
 cc98 --help
 cc98 topic --help
 cc98 user --help
-cc98 update --help
+cc98 message --help
+cc98 vpn --help
 ```
 
 ## 本地数据
@@ -101,7 +136,9 @@ cc98 update --help
 ~/.cc98-cli/
 ```
 
-## 开发
+Token、WebVPN Cookie 和缓存文件都保存在本机。WebVPN 不保存密码。
+
+## 从源码运行
 
 ```bash
 npm install
@@ -112,7 +149,7 @@ node dist/main.js
 
 ## 致谢
 
-- [Ansherly](https://github.com/Ansherly)：感谢前辈的积极鼓励！
+- [Ansherly](https://github.com/Ansherly)：感谢前辈的积极鼓励。
 - [CC98-Desktop](https://github.com/Ansherly/CC98-Desktop)：部分 TUI 信息架构参考了该桌面客户端的交互设计。
 
 ## License

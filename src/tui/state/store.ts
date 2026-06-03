@@ -19,6 +19,7 @@ export function createInitialState(): TuiState {
     overview: [],
     listViewportCapacity: 0,
     modal: null,
+    menuTitle: undefined,
     menuIndex: 0,
     menuItems: [],
     tabId: "default",

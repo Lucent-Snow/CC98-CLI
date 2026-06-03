@@ -177,7 +177,7 @@ function renderImageReference(value: string, images: string[]): string {
   }
   images.push(cleanUrl);
   const index = images.length;
-  return `\n[image ${index}] ${shortUrl(cleanUrl)}  o 打开  c 复制图片\n`;
+  return `\n[image ${index}] ${shortUrl(cleanUrl)}  o 菜单\n`;
 }
 
 function normalizeImageUrl(value: string): string | undefined {

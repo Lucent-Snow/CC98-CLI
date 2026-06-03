@@ -1,6 +1,6 @@
 # CC98-CLI 文档
 
-本目录只同步公开维护文档。参考项目摘录、临时产品分析、发布操作草稿等内容保留在本地，不进入仓库。
+本目录收录面向用户和维护者的稳定文档。
 
 ## 内容
 
@@ -8,13 +8,12 @@
 - [API 参考](api.md)
 - [API 对比](api-comparison.md)
 - [TUI vs CLI 功能对比](tui-cli-comparison.md)
-- [开发路线图](ROADMAP.md)
-- [项目进度](PROGRESS.md)
+- [终端图片支持](terminal-images.md)
 - [缓存策略 ADR](decisions/001-cache-strategy.md)
 
-## 当前 TUI 结构
+## TUI 结构
 
-TUI 已从早期单文件实现拆分为：
+TUI 由以下模块组成：
 
 - `app.ts`: 终端生命周期和依赖组装
 - `controller.ts`: 按键处理、异步加载、写操作和导航副作用

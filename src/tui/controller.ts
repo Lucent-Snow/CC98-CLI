@@ -377,7 +377,7 @@ export class TuiController {
       }
       return;
     }
-    if (key === "\x7f") {
+    if (this.keybindings.matches(key, "inputBackspace")) {
       this.state.searchQuery = this.state.searchQuery.slice(0, -1);
       this.state.searchResults = [];
       this.state.searchSubmitted = false;
@@ -453,11 +453,6 @@ export class TuiController {
   }
 
   private handleMenuKey(key: string): void {
-    const keyed = this.state.menuItems.find((item) => item.key === key);
-    if (keyed) {
-      this.executeMenuItem(keyed);
-      return;
-    }
     if (this.keybindings.matches(key, "menuNext")) {
       this.state.menuIndex = Math.min(Math.max(0, this.state.menuItems.length - 1), this.state.menuIndex + 1);
       this.render();
@@ -469,8 +464,7 @@ export class TuiController {
       return;
     }
     if (this.keybindings.matches(key, "menuClose")) {
-      this.state.modal = null;
-      this.render();
+      this.closeModal();
       return;
     }
     if (this.keybindings.matches(key, "menuExecute")) {
@@ -481,7 +475,23 @@ export class TuiController {
   }
 
   private executeMenuItem(selected: MenuItem): void {
+    switch (selected.action) {
+      case "topic-menu-floor":
+        this.openTopicSubmenu("floor");
+        return;
+      case "topic-menu-user":
+        this.openTopicSubmenu("user");
+        return;
+      case "topic-menu-topic":
+        this.openTopicSubmenu("topic");
+        return;
+      case "topic-menu-root":
+        this.openMenu();
+        return;
+    }
+
     this.state.modal = null;
+    this.state.menuTitle = undefined;
     switch (selected.action) {
       case "refresh":
         void this.refresh();
@@ -523,6 +533,9 @@ export class TuiController {
       case "post-dislike":
         void this.reactToCurrentPost(false);
         break;
+      case "post-copy":
+        this.copyCurrentFloor();
+        break;
       case "post-reaction":
         void this.showPostReactionState(this.nextSignal());
         break;
@@ -552,6 +565,9 @@ export class TuiController {
         if (line?.kind === "link" && line.linkUrl) void this.copyToClipboard(line.linkUrl);
         break;
       }
+      case "topic-copy-link":
+        this.copyCurrentTopicLink();
+        break;
       case "search-topics":
       case "search-users":
         this.openSearch();
@@ -676,35 +692,9 @@ export class TuiController {
       void this.refreshCurrentTopic(this.nextSignal());
       return;
     }
-    // s：收藏
-    if (this.keybindings.matches(key, "topicFavorite")) void this.toggleFavorite();
-    // l：点赞
-    if (this.keybindings.matches(key, "topicLike")) void this.reactToCurrentPost(true);
-    // d：踩
-    if (this.keybindings.matches(key, "topicDislike")) void this.reactToCurrentPost(false);
-    // u：查看用户
-    if (this.keybindings.matches(key, "topicUser")) void this.showCurrentUser(this.nextSignal());
-    // v：查看投票
-    if (this.keybindings.matches(key, "topicVote")) void this.showTopicVote(this.nextSignal());
-    // a：查看评价
-    if (this.keybindings.matches(key, "topicReaction")) void this.showPostReactionState(this.nextSignal());
-    // o：打开图片/菜单
-    if (this.keybindings.matches(key, "topicOpenImage")) {
-      const currentLine = this.getCurrentTopicLine();
-      if (currentLine?.kind === "image" && currentLine.imageUrl) {
-        void this.openImage(currentLine.imageUrl);
-      } else {
-        this.openMenu();
-      }
-    }
-    // c：图片复制图片本体，链接复制 URL
-    if (this.keybindings.matches(key, "topicCopyLink")) {
-      const currentLine = this.getCurrentTopicLine();
-      if (currentLine?.kind === "image" && currentLine.imageUrl) {
-        void this.copyImageToClipboard(currentLine.imageUrl);
-      } else if (currentLine?.kind === "link" && currentLine.linkUrl) {
-        void this.copyToClipboard(currentLine.linkUrl);
-      }
+    // o：打开当前上下文操作菜单
+    if (this.keybindings.matches(key, "menu") || this.keybindings.matches(key, "topicOpenImage")) {
+      this.openMenu();
     }
   }
 
@@ -1081,6 +1071,7 @@ export class TuiController {
 
   private openMenu(): void {
     this.state.modal = "menu";
+    this.state.menuTitle = "操作菜单";
     this.state.menuItems = this.getMenuItems();
     this.state.menuIndex = 0;
     this.render();
@@ -1090,67 +1081,89 @@ export class TuiController {
     if (this.state.mode === "topic") {
       const topic = this.state.topic;
       const post = topic ? currentTopicPost(topic, topic.cursorLine) : undefined;
-      const line = topic ? currentTopicLine(topic, topic.cursorLine) : undefined;
-      const items: MenuItem[] = [
-        { label: "主题 / 回复", key: "R", action: "reply" },
-        { label: "主题 / 收藏或取消收藏", key: "s", action: "topic-favorite" },
-        { label: "主题 / 投票信息", key: "v", action: "topic-vote" }
-      ];
-
-      if (post?.id) {
-        items.push(
-          { label: "楼层 / 点赞", key: "l", action: "post-like" },
-          { label: "楼层 / 踩", key: "d", action: "post-dislike" },
-          { label: "楼层 / 赞踩与评分", key: "a", action: "post-reaction" }
-        );
-      }
+      const items: MenuItem[] = [];
+      if (post) items.push({ label: "楼层", key: "Enter", action: "topic-menu-floor" });
       if (post?.userId) {
-        items.push({ label: "用户 / 信息与关注", key: "u", action: "post-user" });
+        items.push({ label: "用户", key: "Enter", action: "topic-menu-user" });
       }
-      if (line?.kind === "image" && line.imageUrl) {
-        items.push(
-          { label: "图片 / 打开", key: "O", action: "image-open" },
-          { label: "图片 / 复制", key: "c", action: "image-copy" }
-        );
-      } else if (line?.kind === "link" && line.linkUrl) {
-        items.push({ label: "链接 / 复制 URL", key: "c", action: "link-copy" });
-      }
-      items.push(
-        { label: "搜索", key: "/", action: "search-topics" },
-        { label: "刷新", key: "r", action: "refresh" },
-        { label: "返回列表", key: "h", action: "back" }
-      );
+      if (topic) items.push({ label: "帖子", key: "Enter", action: "topic-menu-topic" });
       return items;
     }
     if (this.state.mode === "list") {
       const selected = this.state.items[this.state.itemIndex];
       const items: MenuItem[] = [];
       if (selected?.topicId !== undefined || selected?.boardId !== undefined || selected?.userId !== undefined || selected?.action) {
-        items.push({ label: "当前 / 打开", key: "↵", action: "open-selected" });
+        items.push({ label: "当前 / 打开", key: "Enter", action: "open-selected" });
       }
       if (selected?.topicId !== undefined) {
-        items.push({ label: "主题 / 收藏或取消收藏", key: "s", action: "selected-topic-favorite" });
+        items.push({ label: "主题 / 收藏或取消收藏", key: "Enter", action: "selected-topic-favorite" });
       }
       if (selected?.boardId !== undefined && selected.boardId !== this.state.currentBoard?.boardId) {
-        items.push({ label: "版面 / 收藏或取消收藏", key: "b", action: "selected-board-favorite" });
+        items.push({ label: "版面 / 收藏或取消收藏", key: "Enter", action: "selected-board-favorite" });
       }
       if (selected?.userId !== undefined) {
-        items.push({ label: "用户 / 信息与关注", key: "u", action: "selected-user" });
+        items.push({ label: "用户 / 信息与关注", key: "Enter", action: "selected-user" });
       }
       if (this.state.currentBoard) {
         items.push(
-          { label: "版面 / 收藏或取消收藏", key: "B", action: "current-board-favorite" },
-          { label: "搜索", key: "/", action: "search-topics" }
+          { label: "版面 / 收藏或取消收藏", key: "Enter", action: "current-board-favorite" },
+          { label: "搜索", key: "Enter", action: "search-topics" }
         );
       } else {
-        items.push({ label: "搜索", key: "/", action: "search-topics" });
+        items.push({ label: "搜索", key: "Enter", action: "search-topics" });
       }
-      if (this.state.currentChat) items.unshift({ label: "私信 / 回复", key: "R", action: "reply" });
-      items.push({ label: "刷新", key: "r", action: "refresh" });
-      if (this.state.currentBoard || this.state.parentList) items.push({ label: "返回", key: "h", action: "back" });
+      if (this.state.currentChat) items.unshift({ label: "私信 / 回复", key: "Enter", action: "reply" });
+      items.push({ label: "刷新", key: "Enter", action: "refresh" });
+      if (this.state.currentBoard || this.state.parentList) items.push({ label: "返回", key: "Enter", action: "back" });
       return items;
     }
     return [];
+  }
+
+  private openTopicSubmenu(section: "floor" | "user" | "topic"): void {
+    this.state.modal = "menu";
+    this.state.menuTitle = section === "floor" ? "楼层" : section === "user" ? "用户" : "帖子";
+    this.state.menuItems = this.getTopicSubmenuItems(section);
+    this.state.menuIndex = 0;
+    this.render();
+  }
+
+  private getTopicSubmenuItems(section: "floor" | "user" | "topic"): MenuItem[] {
+    const topic = this.state.topic;
+    const post = topic ? currentTopicPost(topic, topic.cursorLine) : undefined;
+    const line = topic ? currentTopicLine(topic, topic.cursorLine) : undefined;
+    if (section === "floor") {
+      const items: MenuItem[] = [];
+      if (post?.id) {
+        items.push(
+          { label: "赞", key: "Enter", action: "post-like" },
+          { label: "踩", key: "Enter", action: "post-dislike" }
+        );
+      }
+      if (line?.kind === "image" && line.imageUrl) {
+        items.push(
+          { label: "打开图片", key: "Enter", action: "image-open" },
+          { label: "复制图片", key: "Enter", action: "image-copy" }
+        );
+      }
+      if (line?.kind === "link" && line.linkUrl) {
+        items.push({ label: "复制链接", key: "Enter", action: "link-copy" });
+      }
+      items.push({ label: "复制楼层内容", key: "Enter", action: "post-copy" });
+      items.push({ label: "返回上级", key: "Enter", action: "topic-menu-root" });
+      return items;
+    }
+    if (section === "user") {
+      return [
+        { label: "查看用户资料", key: "Enter", action: "post-user" },
+        { label: "返回上级", key: "Enter", action: "topic-menu-root" }
+      ];
+    }
+    return [
+      { label: "收藏或取消收藏", key: "Enter", action: "topic-favorite" },
+      { label: "复制帖子链接", key: "Enter", action: "topic-copy-link" },
+      { label: "返回上级", key: "Enter", action: "topic-menu-root" }
+    ];
   }
 
   private closeModal(): void {
@@ -1158,6 +1171,8 @@ export class TuiController {
     this.state.infoTitle = undefined;
     this.state.infoLines = [];
     this.state.userDetail = undefined;
+    this.state.menuTitle = undefined;
+    this.state.menuItems = [];
     this.state.confirmCallback = undefined;
     this.state.cancelCallback = undefined;
     this.render();
@@ -1477,7 +1492,7 @@ export class TuiController {
       void this.confirmLogout();
       return;
     }
-    this.state.status = "功能开发中...";
+    this.state.status = "当前设置项没有可执行操作";
     this.render();
   }
 
@@ -1988,7 +2003,7 @@ export class TuiController {
         return;
       }
     }
-    this.state.status = "暂不支持该入口";
+    this.state.status = "当前条目没有可执行操作";
     this.render();
   }
 
@@ -2380,6 +2395,30 @@ export class TuiController {
       return;
     }
     await this.showUserDetailById(post.userId, signal);
+  }
+
+  private copyCurrentFloor(): void {
+    const topic = this.state.topic;
+    if (!topic) return;
+    const post = currentTopicPost(topic, topic.cursorLine);
+    if (!post) {
+      this.state.status = "当前没有可复制的楼层";
+      this.render();
+      return;
+    }
+    const body = post.lines
+      .filter((entry) => entry.kind !== "header" && entry.kind !== "divider" && entry.kind !== "blank")
+      .map((entry) => stripAnsi(entry.text).trimEnd())
+      .join("\n")
+      .trim();
+    const title = `#${post.floor ?? "?"} ${post.author}${post.time ? ` · ${post.time}` : ""}`;
+    void this.copyToClipboard(body ? `${title}\n${body}` : title);
+  }
+
+  private copyCurrentTopicLink(): void {
+    const topic = this.state.topic;
+    if (!topic) return;
+    void this.copyToClipboard(`https://www.cc98.org/topic/${topic.topicId}`);
   }
 
   private async showUserDetailById(userId: number, signal: AbortSignal): Promise<void> {

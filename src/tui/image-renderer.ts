@@ -329,5 +329,5 @@ export function getImagePlaceholder(url: string, index: number): string {
  * Generate help text for image actions
  */
 export function getImageActions(): string {
-  return `          o 打开  c 复制图片`;
+  return `          o 操作菜单`;
 }

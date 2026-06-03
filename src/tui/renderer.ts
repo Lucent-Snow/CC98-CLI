@@ -1,4 +1,4 @@
-import { ansi, bg, fg, moveTo, stripAnsi } from "./ansi.js";
+import { ansi, bg, fg, moveTo } from "./ansi.js";
 import { Header, Overview, Sidebar, Content, StatusBar, fit, blank, cellWidth } from "./components/index.js";
 import { navItems } from "./navigation.js";
 import type { TopicReaderState, TuiState } from "./state/types.js";
@@ -428,13 +428,13 @@ function drawImagePreview(topic: TopicReaderState, imageUrl: string, width: numb
 
   if (topic.imageErrors.has(imageUrl)) {
     rows.push(`${danger} 下载失败${ansi.reset}`);
-    rows.push(`${muted} o 打开  c 复制图片${ansi.reset}`);
+    rows.push(`${muted}o 打开操作菜单${ansi.reset}`);
     return rows.slice(0, height);
   }
 
   if (!cachedPath) {
     rows.push(`${muted}${topic.imageLoading.has(imageUrl) ? " 加载中..." : " 等待缓存..."}${ansi.reset}`);
-    rows.push(`${muted} o 打开  c 复制图片${ansi.reset}`);
+    rows.push(`${muted}o 打开操作菜单${ansi.reset}`);
     return rows.slice(0, height);
   }
 
@@ -442,7 +442,7 @@ function drawImagePreview(topic: TopicReaderState, imageUrl: string, width: numb
     const capabilities = detectTerminalCapabilities();
     rows.push(`${muted} 当前终端未检测到图片协议${ansi.reset}`);
     rows.push(`${muted} TERM=${capabilities.term || "-"}${ansi.reset}`);
-    rows.push(`${muted} o 打开  c 复制图片${ansi.reset}`);
+    rows.push(`${muted}o 打开操作菜单${ansi.reset}`);
     return rows.slice(0, height);
   }
 
@@ -454,13 +454,13 @@ function drawImagePreview(topic: TopicReaderState, imageUrl: string, width: numb
 
   if (!rendered) {
     rows.push(`${muted} 当前协议无法渲染此图片${ansi.reset}`);
-    rows.push(`${muted} o 打开  c 复制图片${ansi.reset}`);
+    rows.push(`${muted}o 打开操作菜单${ansi.reset}`);
     return rows.slice(0, height);
   }
 
   rows.push(`${imagePreviewMarker}${rendered.escapeSequence}`);
   rows.push(...blank(Math.max(0, previewSize.rows - 1), width));
-  rows.push(`${muted} o 打开  c 复制图片${ansi.reset}`);
+  rows.push(`${muted}o 打开操作菜单${ansi.reset}`);
   return rows.slice(0, height);
 }
 
@@ -494,7 +494,8 @@ function drawHelpModal(baseLines: string[], width: number, height: number): stri
     `全局: ${keys("search")} 搜索  ${keys("refresh")} 刷新  ${keys("menu")} 菜单  ${keys("help")} 帮助  ${keys("quit")} 退出`,
     `帖子: ${keys("topicScrollDown")}/${keys("topicScrollUp")} 滚动  ${keys("topicNextPage")}/${keys("topicPrevPage")} 翻页  ${keys("topicNextFloor")}/${keys("topicPrevFloor")} 楼层`,
     `帖子: 数字+${keys("topicJumpPage")} 跳页  数字+${keys("topicJumpFloor")} 跳楼  ${keys("topicJumpLast")} 最后`,
-    `帖子: ${keys("topicFavorite")} 收藏  ${keys("topicLike")} 赞  ${keys("topicDislike")} 踩  ${keys("topicUser")} 用户`,
+    `帖子: ${keys("reply")} 回复  ${keys("menu")} 操作菜单`,
+    `菜单: 帖子内 ${keys("menu")} 后选择 楼层/用户/帖子，图片打开在楼层菜单`,
     `搜索: ${keys("searchNext")}/${keys("searchPrev")} 移动  ${keys("searchExecute")} 搜索/打开  ${keys("searchToggleMode")} 切换`,
     `菜单: ${keys("menuNext")}/${keys("menuPrev")} 移动  ${keys("menuExecute")} 执行  ${keys("menuClose")} 关闭`,
     "",
@@ -507,7 +508,7 @@ function keys(action: KeybindingAction): string {
 }
 
 function drawMenuModal(baseLines: string[], state: TuiState, width: number, height: number): string {
-  const rows = [`${cc98Blue}${ansi.bold}操作菜单${ansi.reset}`, ""];
+  const rows = [`${cc98Blue}${ansi.bold}${state.menuTitle ?? "操作菜单"}${ansi.reset}`, ""];
   rows.push(...state.menuItems.map((item, index) => {
     const active = index === state.menuIndex;
     return `${active ? `${ok}●${ansi.reset}` : `${muted}•${ansi.reset}`} ${item.label}  ${muted}${item.key}${ansi.reset}`;
@@ -624,47 +625,16 @@ function overlay(baseLines: string[], width: number, height: number, modalWidth:
   const modalHeight = Math.min(height - 4, content.length + 2);
   const startRow = Math.max(0, Math.floor((height - modalHeight) / 2));
   const startCol = Math.max(0, Math.floor((width - modalWidth) / 2));
-  const result = [...baseLines];
+  const overlays: string[] = [];
 
   for (let index = 0; index < modalHeight; index += 1) {
     const row = startRow + index;
-    if (row >= result.length) break;
+    if (row >= height) break;
     const raw = index === 0 || index === modalHeight - 1 ? "" : content[index - 1] ?? "";
-    const padded = fit(stripAnsi(raw), modalWidth);
+    const padded = fit(raw, modalWidth);
     const block = `${bg(5, 46, 74)}${padded}${ansi.reset}`;
-    result[row] = fit(replaceCells(result[row] ?? "", startCol, modalWidth, block), width);
+    overlays.push(`${moveTo(row + 1, startCol + 1)}${block}`);
   }
 
-  return result.slice(0, height).join("\n");
-}
-
-function replaceCells(value: string, start: number, width: number, replacement: string): string {
-  const plain = stripAnsi(value);
-  const before = takeCells(plain, 0, start);
-  const after = takeCells(plain, start + width, cellWidth(plain));
-  return `${before}${replacement}${after}`;
-}
-
-function takeCells(value: string, start: number, end: number): string {
-  let output = "";
-  let position = 0;
-
-  for (const char of value) {
-    const next = position + cellWidth(char);
-    if (next <= start) {
-      position = next;
-      continue;
-    }
-    if (position >= end) {
-      break;
-    }
-    if (position < start || next > end) {
-      output += " ".repeat(Math.max(0, Math.min(next, end) - Math.max(position, start)));
-    } else {
-      output += char;
-    }
-    position = next;
-  }
-
-  return output;
+  return `${baseLines.slice(0, height).join("\n")}${overlays.join("")}${moveTo(height, 1)}`;
 }

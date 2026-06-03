@@ -69,7 +69,7 @@ async function vpnLogin(args: string[]): Promise<void> {
         console.log("✅ WebVPN 登录成功");
         await store.saveSession(username, vpn.getCookies());
       } else {
-        console.error("❌ 确认登录失败:", confirmResult.message);
+        console.error("确认登录失败:", confirmResult.message);
         return;
       }
     } else {
@@ -80,7 +80,7 @@ async function vpnLogin(args: string[]): Promise<void> {
     console.log("✅ WebVPN 登录成功");
     await store.saveSession(username, vpn.getCookies());
   } else {
-    console.error("❌ WebVPN 登录失败:", result.message);
+    console.error("WebVPN 登录失败:", result.message);
     return;
   }
 
@@ -91,7 +91,7 @@ async function vpnLogin(args: string[]): Promise<void> {
   if (testResponse.ok) {
     console.log("✅ WebVPN 连接正常");
   } else {
-    console.error("❌ WebVPN 连接失败:", testResponse.status);
+    console.error("WebVPN 连接失败:", testResponse.status);
   }
 }
 

@@ -337,7 +337,7 @@ export class Cc98Client {
 
   async reactToPost(postId: number, isLike: boolean): Promise<unknown> {
     return this.request<unknown>(endpoints.post.react(postId), {
-      method: "POST",
+      method: "PUT",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(isLike ? "like" : "dislike")
     });

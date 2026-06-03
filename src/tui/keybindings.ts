@@ -92,14 +92,14 @@ export const DEFAULT_KEYBINDINGS: KeybindingConfig = {
   topicJumpPage: ["g"],
   topicJumpFloor: ["G"],
   topicJumpLast: ["G"],
-  topicFavorite: ["s"],
-  topicLike: ["l"],
-  topicDislike: ["d"],
-  topicUser: ["u"],
-  topicVote: ["v"],
-  topicReaction: ["a"],
-  topicOpenImage: ["o"],
-  topicCopyLink: ["c"],
+  topicFavorite: [],
+  topicLike: [],
+  topicDislike: [],
+  topicUser: [],
+  topicVote: [],
+  topicReaction: [],
+  topicOpenImage: [],
+  topicCopyLink: [],
   topicRefresh: ["r"],
   // 列表
   listNext: ["j", "\x1b[B"],
@@ -116,12 +116,12 @@ export const DEFAULT_KEYBINDINGS: KeybindingConfig = {
   // 菜单
   menuNext: ["j", "\x1b[B"],
   menuPrev: ["k", "\x1b[A"],
-  menuExecute: ["\r", "l"],
+  menuExecute: ["\r"],
   menuClose: ["\x1b", "o"],
   // 输入
   inputConfirm: ["\r"],
   inputCancel: ["\x1b"],
-  inputBackspace: ["\x7f"]
+  inputBackspace: ["\x7f", "\x08"]
 };
 
 // 快捷键管理器
@@ -258,6 +258,7 @@ export class KeybindingManager {
       "\x1b": "Esc",
       "\t": "Tab",
       "\x7f": "Backspace",
+      "\x08": "Backspace",
       "\u0003": "Ctrl+C",
       "\x1b[A": "↑",
       "\x1b[B": "↓",
