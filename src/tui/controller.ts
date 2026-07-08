@@ -2942,14 +2942,7 @@ export class TuiController {
     this.render();
   }
 
-  private async buildFavoriteView(force: boolean, signal?: AbortSignal): Promise<{
-    title: string;
-    items: ContentItem[];
-    stats: ContentItem[];
-    status: string;
-    paging: ListPagingState;
-  }> {
-    // Fetch and parse favorite groups
+  private async fetchFavoriteGroups(force: boolean, signal?: AbortSignal): Promise<Array<{ id: number; name: string }>> {
     const rawResponse = await this.client.getFavoriteGroups(force, signal);
     let rawGroups = asArray(rawResponse);
     // Handle response wrapped in an object (e.g. { groups: [...] })
@@ -2958,10 +2951,20 @@ export class TuiController {
       const inner = outer.groups ?? outer.Groups ?? outer.data ?? outer.Data;
       if (Array.isArray(inner)) rawGroups = inner as unknown[];
     }
-    const parsedGroups = rawGroups.map((g) => {
+    return rawGroups.map((g) => {
       const obj = asObject(g);
       return { id: asNumber(obj.id ?? obj.Id ?? obj.groupId ?? obj.GroupId) ?? 0, name: String(obj.name ?? obj.Name ?? "分组") };
     });
+  }
+
+  private async buildFavoriteView(force: boolean, signal?: AbortSignal): Promise<{
+    title: string;
+    items: ContentItem[];
+    stats: ContentItem[];
+    status: string;
+    paging: ListPagingState;
+  }> {
+    const parsedGroups = await this.fetchFavoriteGroups(force, signal);
 
     // Build group tabs — always include default group (id=0) first
     const groupTabs: Array<{ id: string; label: string; groupId: number }> = [];
@@ -3056,11 +3059,7 @@ export class TuiController {
     const topic = this.state.topic;
     if (!topic) return;
     try {
-      const rawGroups = asArray(await this.client.getFavoriteGroups(true));
-      const groups = rawGroups.map((g) => {
-        const obj = asObject(g);
-        return { id: asNumber(obj.id ?? obj.Id) ?? 0, name: String(obj.name ?? obj.Name ?? "分组") };
-      });
+      const groups = await this.fetchFavoriteGroups(true);
       if (groups.length === 0) {
         this.state.status = "没有收藏分组，将收藏到默认分组";
         await this.client.addFavorite(topic.topicId);
