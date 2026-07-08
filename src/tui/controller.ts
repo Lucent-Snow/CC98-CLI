@@ -849,7 +849,12 @@ export class TuiController {
     const tab = this.state.tabs[index];
     if (!tab || tab.id === this.state.tabId) return;
     this.state.tabId = tab.id;
-    void this.load(true);
+    // In favorite view, reload just the group content without full nav reload
+    if (tab.id.startsWith("group-")) {
+      void this.loadFavoriteContentView(true);
+    } else {
+      void this.load(true);
+    }
   }
 
   private leave(): void {
@@ -1015,6 +1020,8 @@ export class TuiController {
       void this.openBoard(this.state.currentBoard.boardId, this.state.currentBoard.title, true, this.nextSignal(), false);
     } else if (this.state.currentChat) {
       void this.openChat(this.state.currentChat.userId, this.state.currentChat.title, true, this.nextSignal(), false);
+    } else if (this.state.listPaging?.kind === "favorite-topics") {
+      void this.loadFavoriteContentView(true);
     } else {
       void this.load(true);
     }
@@ -1190,7 +1197,6 @@ export class TuiController {
     }
     return [
       { label: "收藏或取消收藏", key: "Enter", action: "topic-favorite" },
-      { label: "收藏到分组…", key: "Enter", action: "topic-favorite-group" },
       { label: "复制帖子链接", key: "Enter", action: "topic-copy-link" },
       { label: "返回上级", key: "Enter", action: "topic-menu-root" }
     ];
@@ -2217,7 +2223,21 @@ export class TuiController {
   private async toggleFavorite(): Promise<void> {
     const topic = this.state.topic;
     if (!topic) return;
-    await this.toggleTopicFavorite(topic.topicId);
+    try {
+      const isFavorite = await this.client.isTopicFavorite(topic.topicId, true);
+      if (isFavorite) {
+        // Already favorited — unfavorite directly
+        await this.client.removeFavorite(topic.topicId);
+        this.state.status = "已取消收藏";
+        this.render();
+      } else {
+        // Not favorited — show group picker (default group pre-selected, Enter confirms)
+        this.openFavoriteGroupPicker();
+      }
+    } catch (error) {
+      this.state.status = error instanceof Error ? error.message : "收藏操作失败";
+      this.render();
+    }
   }
 
   private async toggleTopicFavorite(topicId: number): Promise<void> {
@@ -2983,7 +3003,14 @@ export class TuiController {
 
   private async openFavoriteView(signal: AbortSignal): Promise<void> {
     this.snapshotParent();
+    await this.loadFavoriteContentView(false, signal);
+  }
+
+  private async loadFavoriteContentView(force: boolean, signal?: AbortSignal): Promise<void> {
+    const version = ++this.loadVersion;
+    const sig = signal ?? this.nextSignal();
     this.state.loading = true;
+    this.state.error = undefined;
     this.state.viewTitle = "收藏";
     this.state.focus = "content";
     this.state.listPaging = undefined;
@@ -2991,9 +3018,12 @@ export class TuiController {
     this.state.stats = [];
     this.state.itemIndex = 0;
     this.state.scroll = 0;
+    this.state.topic = undefined;
+    this.state.compose = undefined;
     this.render();
     try {
-      const result = await this.buildFavoriteView(false, signal);
+      const result = await this.buildFavoriteView(force, sig);
+      if (version !== this.loadVersion) return;
       this.state.viewTitle = result.title;
       this.state.items = result.items;
       this.state.stats = result.stats;
@@ -3002,14 +3032,13 @@ export class TuiController {
       this.state.loading = false;
       this.render();
       if (result.paging.hasMore) {
-        await this.ensureListWindowFilled(signal);
+        await this.ensureListWindowFilled(sig);
       }
     } catch (error) {
-      if (!isAbortError(error)) {
-        this.state.error = error instanceof Error ? error.message : String(error);
-        this.state.loading = false;
-        this.render();
-      }
+      if (isAbortError(error) || version !== this.loadVersion) return;
+      this.state.error = error instanceof Error ? error.message : String(error);
+      this.state.loading = false;
+      this.render();
     }
   }
 
@@ -3102,7 +3131,7 @@ export class TuiController {
       this.state.status = error instanceof Error ? error.message : "创建分组失败";
     }
     this.render();
-    void this.load(true);
+    void this.loadFavoriteContentView(true);
   }
 
   private startRenameFavoriteGroup(): void {
@@ -3143,7 +3172,7 @@ export class TuiController {
       this.state.status = error instanceof Error ? error.message : "重命名失败";
     }
     this.render();
-    void this.load(true);
+    void this.loadFavoriteContentView(true);
   }
 
   private confirmDeleteFavoriteGroup(): void {
@@ -3182,7 +3211,7 @@ export class TuiController {
       this.state.status = error instanceof Error ? error.message : "删除分组失败";
     }
     this.render();
-    void this.load(true);
+    void this.loadFavoriteContentView(true);
   }
 
   private snapshotParent(): void {
