@@ -3009,6 +3009,7 @@ export class TuiController {
   private async loadFavoriteContentView(force: boolean, signal?: AbortSignal): Promise<void> {
     const version = ++this.loadVersion;
     const sig = signal ?? this.nextSignal();
+    this.state.mode = "list";
     this.state.loading = true;
     this.state.error = undefined;
     this.state.viewTitle = "收藏";
@@ -3019,6 +3020,8 @@ export class TuiController {
     this.state.itemIndex = 0;
     this.state.scroll = 0;
     this.state.topic = undefined;
+    this.state.currentBoard = undefined;
+    this.state.currentChat = undefined;
     this.state.compose = undefined;
     this.render();
     try {

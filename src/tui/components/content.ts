@@ -55,13 +55,13 @@ export class Content implements Component {
   private renderList(state: TuiState, width: number, height: number): string[] {
     const rows: string[] = [];
     rows.push(`${cc98Blue}${ansi.bold} ${state.viewTitle}${ansi.reset}`);
-    if (state.tabs.length > 1) {
+    if (state.tabs.length > 1 || (state.tabs.length >= 1 && state.tabs[0].id.startsWith("group-"))) {
       rows.push(fit(` ${state.tabs.map((tab) => tab.id === state.tabId ? `[${tab.label}]` : ` ${tab.label} `).join("  ")}`, width));
     }
     rows.push(`${line}${"─".repeat(Math.max(0, width - 1))}${ansi.reset}`);
 
     // 每项占2行（标题 + meta），计算可见容量
-    const headerRows = state.tabs.length > 1 ? 3 : 2; // 标题 + 可选 Tab + 分隔线
+    const headerRows = state.tabs.length > 1 || (state.tabs.length >= 1 && state.tabs[0].id.startsWith("group-")) ? 3 : 2; // 标题 + 可选 Tab + 分隔线
     const rowsPerItem = 2; // 标题行 + meta 行
     const footerRows = 1; // 底部信息
     const visibleCapacity = Math.max(1, Math.floor((height - headerRows - footerRows) / rowsPerItem));
