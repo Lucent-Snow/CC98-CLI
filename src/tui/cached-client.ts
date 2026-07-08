@@ -199,6 +199,24 @@ export class CachedCc98Client {
     return result;
   }
 
+  async createFavoriteGroup(name: string): Promise<unknown> {
+    const result = await this.client.createFavoriteGroup(name);
+    this.cache.delete("user:favorite-groups");
+    return result;
+  }
+
+  async updateFavoriteGroup(groupId: number, name: string): Promise<unknown> {
+    const result = await this.client.updateFavoriteGroup(groupId, name);
+    this.cache.delete("user:favorite-groups");
+    return result;
+  }
+
+  async deleteFavoriteGroup(groupId: number): Promise<unknown> {
+    const result = await this.client.deleteFavoriteGroup(groupId);
+    this.cache.delete("user:favorite-groups");
+    return result;
+  }
+
   async addBoardFavorite(boardId: number): Promise<unknown> {
     const result = await this.client.addBoardFavorite(boardId);
     this.cache.delete("user:me");

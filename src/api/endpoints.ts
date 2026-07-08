@@ -69,6 +69,10 @@ export const endpoints = {
     // 收藏
     addFavorite: (topicId: number, groupId = 0) => `${base}/me/favorite/${topicId}?groupid=${groupId}`,
     removeFavorite: (topicId: number) => `${base}/me/favorite/${topicId}`,
+    // 收藏分组
+    createFavoriteGroup: `${base}/me/favorite-topic-group`,
+    updateFavoriteGroup: `${base}/me/favorite-topic-group/`,
+    deleteFavoriteGroup: (groupId: number) => `${base}/me/favorite-topic-group?groupid=${groupId}`,
     // 版面收藏
     addBoardFavorite: (boardId: number) => `${base}/me/custom-board/${boardId}`,
     removeBoardFavorite: (boardId: number) => `${base}/me/custom-board/${boardId}`,

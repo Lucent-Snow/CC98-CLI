@@ -288,6 +288,29 @@ export class Cc98Client {
     });
   }
 
+  async createFavoriteGroup(name: string): Promise<unknown> {
+    return this.request<unknown>(endpoints.write.createFavoriteGroup, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ name })
+    });
+  }
+
+  async updateFavoriteGroup(groupId: number, name: string): Promise<unknown> {
+    return this.request<unknown>(endpoints.write.updateFavoriteGroup, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ id: groupId, name })
+    });
+  }
+
+  async deleteFavoriteGroup(groupId: number): Promise<unknown> {
+    return this.request<unknown>(endpoints.write.deleteFavoriteGroup(groupId), {
+      method: "DELETE",
+      headers: { "content-type": "application/json" }
+    });
+  }
+
   async addBoardFavorite(boardId: number): Promise<unknown> {
     return this.request<unknown>(endpoints.write.addBoardFavorite(boardId), {
       method: "PUT"

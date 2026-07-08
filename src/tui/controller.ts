@@ -517,6 +517,15 @@ export class TuiController {
       case "topic-favorite-group":
         void this.openFavoriteGroupPicker();
         break;
+      case "favorite-group-create":
+        this.startCreateFavoriteGroup();
+        break;
+      case "favorite-group-rename":
+        this.startRenameFavoriteGroup();
+        break;
+      case "favorite-group-delete":
+        this.confirmDeleteFavoriteGroup();
+        break;
       case "selected-topic-favorite": {
         const topicId = this.state.items[this.state.itemIndex]?.topicId;
         if (topicId !== undefined) void this.toggleTopicFavorite(topicId);
@@ -1122,6 +1131,15 @@ export class TuiController {
         );
       } else {
         items.push({ label: "搜索", key: "Enter", action: "search-topics" });
+      }
+      // Group management in favorite view
+      if (this.state.listPaging?.kind === "favorite-topics") {
+        const groupId = this.currentFavoriteGroupId();
+        items.push({ label: "新建分组", key: "Enter", action: "favorite-group-create" });
+        if (groupId !== 0) {
+          items.push({ label: "重命名当前分组", key: "Enter", action: "favorite-group-rename" });
+          items.push({ label: "删除当前分组", key: "Enter", action: "favorite-group-delete" });
+        }
       }
       if (this.state.currentChat) items.unshift({ label: "私信 / 回复", key: "Enter", action: "reply" });
       items.push({ label: "刷新", key: "Enter", action: "refresh" });
@@ -3046,6 +3064,125 @@ export class TuiController {
     this.state.menuTitle = undefined;
     this.state.menuItems = [];
     this.render();
+  }
+
+  private currentFavoriteGroupId(): number {
+    const tabId = this.state.tabId;
+    if (tabId.startsWith("group-")) {
+      return Number(tabId.slice(6)) || 0;
+    }
+    return 0;
+  }
+
+  private startCreateFavoriteGroup(): void {
+    this.state.modal = null;
+    this.state.menuTitle = undefined;
+    this.state.menuItems = [];
+    this.state.inputMode = true;
+    this.state.inputPrompt = "新建分组名称: ";
+    this.state.inputValue = "";
+    this.state.inputCallback = (value: string) => {
+      this.state.inputMode = false;
+      this.state.inputValue = "";
+      if (value.trim()) {
+        void this.handleCreateFavoriteGroup(value.trim());
+      } else {
+        this.state.status = "已取消";
+        this.render();
+      }
+    };
+    this.render();
+  }
+
+  private async handleCreateFavoriteGroup(name: string): Promise<void> {
+    try {
+      await this.client.createFavoriteGroup(name);
+      this.state.status = `已创建分组「${name}」`;
+    } catch (error) {
+      this.state.status = error instanceof Error ? error.message : "创建分组失败";
+    }
+    this.render();
+    void this.load(true);
+  }
+
+  private startRenameFavoriteGroup(): void {
+    const groupId = this.currentFavoriteGroupId();
+    if (groupId === 0) {
+      this.state.status = "默认分组不可重命名";
+      this.state.modal = null;
+      this.state.menuTitle = undefined;
+      this.state.menuItems = [];
+      this.render();
+      return;
+    }
+    const currentTab = this.state.tabs.find(t => t.id === this.state.tabId);
+    this.state.modal = null;
+    this.state.menuTitle = undefined;
+    this.state.menuItems = [];
+    this.state.inputMode = true;
+    this.state.inputPrompt = `重命名「${currentTab?.label ?? "分组"}」为: `;
+    this.state.inputValue = "";
+    this.state.inputCallback = (value: string) => {
+      this.state.inputMode = false;
+      this.state.inputValue = "";
+      if (value.trim()) {
+        void this.handleRenameFavoriteGroup(groupId, value.trim());
+      } else {
+        this.state.status = "已取消";
+        this.render();
+      }
+    };
+    this.render();
+  }
+
+  private async handleRenameFavoriteGroup(groupId: number, name: string): Promise<void> {
+    try {
+      await this.client.updateFavoriteGroup(groupId, name);
+      this.state.status = `已重命名为「${name}」`;
+    } catch (error) {
+      this.state.status = error instanceof Error ? error.message : "重命名失败";
+    }
+    this.render();
+    void this.load(true);
+  }
+
+  private confirmDeleteFavoriteGroup(): void {
+    const groupId = this.currentFavoriteGroupId();
+    if (groupId === 0) {
+      this.state.status = "默认分组不可删除";
+      this.state.modal = null;
+      this.state.menuTitle = undefined;
+      this.state.menuItems = [];
+      this.render();
+      return;
+    }
+    const currentTab = this.state.tabs.find(t => t.id === this.state.tabId);
+    this.state.modal = "info";
+    this.state.infoTitle = "删除分组";
+    this.state.infoLines = [
+      `确定删除分组「${currentTab?.label ?? "分组"}」？`,
+      "组内收藏将移至默认分组。",
+      "",
+      "Enter 确认  Esc 取消"
+    ];
+    this.state.confirmCallback = () => {
+      void this.handleDeleteFavoriteGroup(groupId);
+    };
+    this.state.cancelCallback = undefined;
+    this.state.menuTitle = undefined;
+    this.state.menuItems = [];
+    this.render();
+  }
+
+  private async handleDeleteFavoriteGroup(groupId: number): Promise<void> {
+    try {
+      await this.client.deleteFavoriteGroup(groupId);
+      this.state.status = "已删除分组";
+    } catch (error) {
+      this.state.status = error instanceof Error ? error.message : "删除分组失败";
+    }
+    this.render();
+    void this.load(true);
   }
 
   private snapshotParent(): void {
