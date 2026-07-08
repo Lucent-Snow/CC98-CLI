@@ -60,6 +60,8 @@ export interface ListSnapshot {
   status: string;
   paging?: ListPagingState;
   parent?: ListSnapshot;
+  tabs?: { id: string; label: string }[];
+  tabId?: string;
 }
 
 export type ListPagingKind = "new-topics" | "board-topics" | "followee-topics" | "favorite-topics" | "favorite-updates" | "favorite-board-topics";

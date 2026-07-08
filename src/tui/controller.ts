@@ -2950,10 +2950,17 @@ export class TuiController {
     paging: ListPagingState;
   }> {
     // Fetch and parse favorite groups
-    const rawGroups = asArray(await this.client.getFavoriteGroups(force, signal));
+    const rawResponse = await this.client.getFavoriteGroups(force, signal);
+    let rawGroups = asArray(rawResponse);
+    // Handle response wrapped in an object (e.g. { groups: [...] })
+    if (rawGroups.length === 0 && typeof rawResponse === "object" && rawResponse !== null) {
+      const outer = asObject(rawResponse);
+      const inner = outer.groups ?? outer.Groups ?? outer.data ?? outer.Data;
+      if (Array.isArray(inner)) rawGroups = inner as unknown[];
+    }
     const parsedGroups = rawGroups.map((g) => {
       const obj = asObject(g);
-      return { id: asNumber(obj.id ?? obj.Id) ?? 0, name: String(obj.name ?? obj.Name ?? "分组") };
+      return { id: asNumber(obj.id ?? obj.Id ?? obj.groupId ?? obj.GroupId) ?? 0, name: String(obj.name ?? obj.Name ?? "分组") };
     });
 
     // Build group tabs — always include default group (id=0) first
@@ -3226,7 +3233,9 @@ export class TuiController {
       scroll: this.state.scroll,
       status: this.state.status,
       paging: this.cloneListPaging(this.state.listPaging),
-      parent: this.state.parentList
+      parent: this.state.parentList,
+      tabs: this.state.tabs.length > 0 ? [...this.state.tabs] : undefined,
+      tabId: this.state.tabs.length > 0 ? this.state.tabId : undefined
     };
   }
 
@@ -3241,6 +3250,8 @@ export class TuiController {
     this.state.status = parent.status;
     this.state.listPaging = this.cloneListPaging(parent.paging);
     this.state.parentList = parent.parent;
+    this.state.tabs = parent.tabs ?? [];
+    this.state.tabId = parent.tabId ?? "default";
     this.state.currentBoard = undefined;
     this.state.currentChat = undefined;
     this.state.topic = undefined;
