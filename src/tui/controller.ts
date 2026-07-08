@@ -514,6 +514,9 @@ export class TuiController {
       case "topic-favorite":
         void this.toggleFavorite();
         break;
+      case "topic-favorite-group":
+        void this.openFavoriteGroupPicker();
+        break;
       case "selected-topic-favorite": {
         const topicId = this.state.items[this.state.itemIndex]?.topicId;
         if (topicId !== undefined) void this.toggleTopicFavorite(topicId);
@@ -571,6 +574,13 @@ export class TuiController {
       case "search-topics":
       case "search-users":
         this.openSearch();
+        break;
+      default:
+        if (selected.action.startsWith("favorite-to-group:")) {
+          const groupId = Number(selected.action.slice("favorite-to-group:".length));
+          void this.favoriteToGroup(groupId);
+          break;
+        }
         break;
     }
     this.render();
@@ -955,7 +965,8 @@ export class TuiController {
       return this.fetchNextFavoriteBoardTopics(paging, signal);
     }
     const order = paging.kind === "favorite-updates" ? 1 : 0;
-    const topics = asArray(await this.client.getFavoriteTopics(paging.loaded, paging.size, order, 0, false, signal));
+    const groupId = paging.groupId ?? 0;
+    const topics = asArray(await this.client.getFavoriteTopics(paging.loaded, paging.size, order, groupId, false, signal));
     return topics.map((topic) => topicItem(topic));
   }
 
@@ -1161,6 +1172,7 @@ export class TuiController {
     }
     return [
       { label: "收藏或取消收藏", key: "Enter", action: "topic-favorite" },
+      { label: "收藏到分组…", key: "Enter", action: "topic-favorite-group" },
       { label: "复制帖子链接", key: "Enter", action: "topic-copy-link" },
       { label: "返回上级", key: "Enter", action: "topic-menu-root" }
     ];
@@ -2899,50 +2911,54 @@ export class TuiController {
     status: string;
     paging: ListPagingState;
   }> {
-    const [meRaw, sectionsRaw, topicFavorites] = await Promise.all([
-      this.client.getMe(force, signal),
-      this.client.getAllBoards(false, signal),
-      this.client.getFavoriteTopics(0, 6, 1, 0, force, signal)
-    ]);
-    const customBoards = asArray(asObject(meRaw).customBoards).filter((id): id is number => typeof id === "number");
-    const allBoards = flattenBoards(asArray(sectionsRaw));
-    const boardById = new Map(allBoards.filter((board) => board.boardId !== undefined).map((board) => [board.boardId, board]));
-    const boardPageSize = 5;
-    const topicGroups = await mapLimit(customBoards, 3, async (boardId) => {
-      const board = boardById.get(boardId);
-      const topics = asArray(await this.client.getBoardTopics(boardId, 0, boardPageSize, false, force, signal));
-      return { boardId, board, topics: topics.map((topic) => topicItem(topic, board)), hasMore: topics.length >= boardPageSize };
+    // Fetch and parse favorite groups
+    const rawGroups = asArray(await this.client.getFavoriteGroups(force, signal));
+    const parsedGroups = rawGroups.map((g) => {
+      const obj = asObject(g);
+      return { id: asNumber(obj.id ?? obj.Id) ?? 0, name: String(obj.name ?? obj.Name ?? "分组") };
     });
-    const boardTopics = topicGroups.flatMap((group) => group.topics).sort((left, right) => (right.sortTime ?? 0) - (left.sortTime ?? 0));
-    const boardCursors = topicGroups.map((group) => ({
-      boardId: group.boardId,
-      title: group.board?.title ?? `#${group.boardId}`,
-      loaded: group.topics.length,
-      size: boardPageSize,
-      hasMore: group.hasMore
-    }));
+
+    // Build group tabs — always include default group (id=0) first
+    const groupTabs: Array<{ id: string; label: string; groupId: number }> = [];
+    const defaultGroup = parsedGroups.find((g) => g.id === 0);
+    groupTabs.push({
+      id: "group-0",
+      label: defaultGroup?.name ?? "默认分组",
+      groupId: 0
+    });
+    for (const g of parsedGroups) {
+      if (g.id === 0) continue;
+      groupTabs.push({ id: `group-${g.id}`, label: g.name, groupId: g.id });
+    }
+
+    this.setTabs(
+      groupTabs.map(t => ({ id: t.id, label: t.label })),
+      groupTabs[0]?.id ?? "group-0"
+    );
+
+    // Determine active group from current tab
+    const activeTab = groupTabs.find(t => t.id === this.state.tabId) ?? groupTabs[0];
+    const activeGroupId = activeTab?.groupId ?? 0;
+
+    // Fetch topics for the active group
+    const size = 20;
+    const topics = asArray(await this.client.getFavoriteTopics(0, size, 0, activeGroupId, force, signal));
+
     return {
       title: "收藏",
-      items: [
-        { title: "收藏主题", meta: "topic/me/favorite", detail: "查看收藏夹主题列表", action: "favorite-topics" },
-        { title: "收藏更新", meta: "topic/me/favorite?order=1", detail: "查看收藏主题更新", action: "favorite-updates" },
-        { title: "收藏分组", meta: "me/favorite-topic-group", detail: "查看收藏夹分组", action: "favorite-groups" },
-        ...asArray(topicFavorites).slice(0, 6).map((topic) => topicItem(topic)),
-        ...boardTopics
-      ],
+      items: topics.map((t: any) => topicItem(t)),
       stats: [
-        { title: "收藏版面", detail: `${customBoards.length} 个` },
-        { title: "收藏主题", detail: `${asArray(topicFavorites).length} 条` },
-        { title: "版面主题", detail: `${boardTopics.length} 条` }
+        { title: "分组", detail: `${groupTabs.length} 个` },
+        { title: "收藏", detail: `${topics.length} 条` }
       ],
-      status: "收藏：j/k 选择  Enter 打开  h 返回  r 刷新",
+      status: `收藏 · ${activeTab.label}: Tab 切换分组  j/k 选择  Enter 打开  h 返回  r 刷新`,
       paging: {
-        kind: "favorite-board-topics",
-        loaded: boardTopics.length,
-        size: Math.max(12, customBoards.length * boardPageSize),
-        hasMore: boardCursors.some((cursor) => cursor.hasMore),
+        kind: "favorite-topics",
+        loaded: topics.length,
+        size,
+        hasMore: topics.length >= size,
         anchorOnReturn: true,
-        boardCursors
+        groupId: activeGroupId
       }
     };
   }
@@ -2957,7 +2973,6 @@ export class TuiController {
     this.state.stats = [];
     this.state.itemIndex = 0;
     this.state.scroll = 0;
-    this.setTabs([{ id: "default", label: "" }], "default");
     this.render();
     try {
       const result = await this.buildFavoriteView(false, signal);
@@ -2978,6 +2993,59 @@ export class TuiController {
         this.render();
       }
     }
+  }
+
+  private async openFavoriteGroupPicker(): Promise<void> {
+    const topic = this.state.topic;
+    if (!topic) return;
+    try {
+      const rawGroups = asArray(await this.client.getFavoriteGroups(true));
+      const groups = rawGroups.map((g) => {
+        const obj = asObject(g);
+        return { id: asNumber(obj.id ?? obj.Id) ?? 0, name: String(obj.name ?? obj.Name ?? "分组") };
+      });
+      if (groups.length === 0) {
+        this.state.status = "没有收藏分组，将收藏到默认分组";
+        await this.client.addFavorite(topic.topicId);
+        this.state.status = "已收藏";
+        this.render();
+        return;
+      }
+      const items: MenuItem[] = groups.map((g) => ({
+        label: g.name,
+        key: "Enter",
+        action: `favorite-to-group:${g.id}`
+      }));
+      // Ensure default group is first
+      const defaultIdx = items.findIndex((item) => item.action === "favorite-to-group:0");
+      if (defaultIdx > 0) {
+        const [def] = items.splice(defaultIdx, 1);
+        items.unshift(def);
+      }
+      this.state.modal = "menu";
+      this.state.menuTitle = "收藏到分组";
+      this.state.menuItems = items;
+      this.state.menuIndex = 0;
+      this.render();
+    } catch (error) {
+      this.state.status = error instanceof Error ? error.message : "获取分组失败";
+      this.render();
+    }
+  }
+
+  private async favoriteToGroup(groupId: number): Promise<void> {
+    const topic = this.state.topic;
+    if (!topic) return;
+    try {
+      await this.client.addFavorite(topic.topicId, groupId);
+      this.state.status = `已收藏到分组`;
+    } catch (error) {
+      this.state.status = error instanceof Error ? error.message : "收藏失败";
+    }
+    this.state.modal = null;
+    this.state.menuTitle = undefined;
+    this.state.menuItems = [];
+    this.render();
   }
 
   private snapshotParent(): void {

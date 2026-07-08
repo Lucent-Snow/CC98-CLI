@@ -3,7 +3,7 @@
 export type ViewId = "hot" | "new" | "following" | "boards" | "favorite" | "messages" | "notices" | "me" | "settings";
 export type FocusColumn = "nav" | "content";
 export type ModalType = "menu" | "help" | "search" | "user" | "info" | null;
-export type TabId = "default" | "new-latest" | "new-random" | "new-recommendation" | "follow-boards" | "follow-users" | "follow-favorites" | "posts" | "boards" | "chat" | "notices" | "history" | "followers" | "followees" | "favorites" | "signin" | "my-topics";
+export type TabId = string;
 export type SearchMode = "topics" | "users" | "content";
 export type TopicSearchScope = "global" | "board";
 export type NoticeType = "system" | "at" | "reply";
@@ -82,6 +82,7 @@ export interface ListPagingState {
   boardId?: number;
   boardTitle?: string;
   buffer?: ContentItem[];
+  groupId?: number;
 }
 
 export interface BoardListState {
