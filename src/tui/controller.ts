@@ -796,6 +796,11 @@ export class TuiController {
       return;
     }
     if (this.keybindings.matches(key, "listOpen")) {
+      // "+" tab in favorite view — create group
+      if (this.state.tabId === "group-new") {
+        this.startCreateFavoriteGroup();
+        return;
+      }
       const selected = this.state.items[this.state.itemIndex];
       if (selected) {
         void this.activateContentItem(selected, this.nextSignal());
@@ -849,6 +854,12 @@ export class TuiController {
     const tab = this.state.tabs[index];
     if (!tab || tab.id === this.state.tabId) return;
     this.state.tabId = tab.id;
+    // "+" tab — just render, don't load (Enter triggers creation)
+    if (tab.id === "group-new") {
+      this.state.status = "新建分组: Enter 确认  Tab 返回分组列表";
+      this.render();
+      return;
+    }
     // In favorite view, reload just the group content without full nav reload
     if (tab.id.startsWith("group-")) {
       void this.loadFavoriteContentView(true);
@@ -1020,7 +1031,8 @@ export class TuiController {
       void this.openBoard(this.state.currentBoard.boardId, this.state.currentBoard.title, true, this.nextSignal(), false);
     } else if (this.state.currentChat) {
       void this.openChat(this.state.currentChat.userId, this.state.currentChat.title, true, this.nextSignal(), false);
-    } else if (this.state.listPaging?.kind === "favorite-topics") {
+    } else if (this.state.listPaging?.kind === "favorite-topics" || this.state.tabId === "group-new") {
+      this.state.tabId = "group-0";
       void this.loadFavoriteContentView(true);
     } else {
       void this.load(true);
@@ -2966,7 +2978,7 @@ export class TuiController {
   }> {
     const parsedGroups = await this.fetchFavoriteGroups(force, signal);
 
-    // Build group tabs — always include default group (id=0) first
+    // Build group tabs — always include default group (id=0) first, then other groups, then "+"
     const groupTabs: Array<{ id: string; label: string; groupId: number }> = [];
     const defaultGroup = parsedGroups.find((g) => g.id === 0);
     groupTabs.push({
@@ -2978,6 +2990,8 @@ export class TuiController {
       if (g.id === 0) continue;
       groupTabs.push({ id: `group-${g.id}`, label: g.name, groupId: g.id });
     }
+    // "+" tab for creating new groups
+    groupTabs.push({ id: "group-new", label: "+", groupId: -1 });
 
     this.setTabs(
       groupTabs.map(t => ({ id: t.id, label: t.label })),
@@ -2986,20 +3000,35 @@ export class TuiController {
 
     // Determine active group from current tab
     const activeTab = groupTabs.find(t => t.id === this.state.tabId) ?? groupTabs[0];
-    const activeGroupId = activeTab?.groupId ?? 0;
+
+    // "+" tab — placeholder, no topics to load
+    if (activeTab.id === "group-new") {
+      return {
+        title: "收藏",
+        items: [],
+        stats: [
+          { title: "分组", detail: `${groupTabs.length - 1} 个` }
+        ],
+        status: "新建分组: Enter 确认  Tab 返回分组列表",
+        paging: { kind: "favorite-topics", loaded: 0, size: 0, hasMore: false, anchorOnReturn: false }
+      };
+    }
+
+    const activeGroupId = activeTab.groupId;
 
     // Fetch topics for the active group
     const size = 20;
     const topics = asArray(await this.client.getFavoriteTopics(0, size, 0, activeGroupId, force, signal));
+    const hint = activeGroupId !== 0 ? "  o 管理" : "";
 
     return {
       title: "收藏",
       items: topics.map((t: any) => topicItem(t)),
       stats: [
-        { title: "分组", detail: `${groupTabs.length} 个` },
+        { title: "分组", detail: `${groupTabs.length - 1} 个` },
         { title: "收藏", detail: `${topics.length} 条` }
       ],
-      status: `收藏 · ${activeTab.label}: Tab 切换分组  j/k 选择  Enter 打开  h 返回  r 刷新`,
+      status: `收藏 · ${activeTab.label}: Tab 切换分组  j/k 选择  Enter 打开  h 返回  r 刷新${hint}`,
       paging: {
         kind: "favorite-topics",
         loaded: topics.length,
@@ -3139,6 +3168,7 @@ export class TuiController {
     } catch (error) {
       this.state.status = error instanceof Error ? error.message : "创建分组失败";
     }
+    this.state.tabId = "group-0";
     this.render();
     void this.loadFavoriteContentView(true);
   }
