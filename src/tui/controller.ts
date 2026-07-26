@@ -1302,7 +1302,7 @@ export class TuiController {
         const boards = flattenBoards(sections);
         return {
           title: "版面",
-          items: boards.slice(0, 24),
+          items: boards,
           stats: [{ title: "分区", detail: `${sections.length}` }, { title: "版面", detail: `${boards.length}` }],
           status: "版面：j/k 选择  Enter 进入版面  h 返回  r 刷新"
         };
