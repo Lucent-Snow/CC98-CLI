@@ -18,11 +18,9 @@ function getWebVpnOptions(config: Awaited<ReturnType<VpnStore["getConfig"]>>): W
   if (config.mode === "direct") {
     return { mode: "direct" };
   }
-  if (config.mode === "vpn" || config.cookies) {
-    return {
-      mode: config.mode,
-      cookies: config.cookies,
-    };
-  }
-  return undefined;
+  // auto 和 vpn 模式都需要初始化 WebVPN 服务
+  return {
+    mode: config.mode,
+    cookies: config.cookies,
+  };
 }

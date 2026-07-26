@@ -15,16 +15,18 @@ export async function runTui(): Promise<void> {
   
   // 读取 VPN 配置
   const vpnConfig = await vpnStore.getConfig();
-  const webVpnOptions: WebVpnOptions | undefined = vpnConfig.mode === "vpn" || vpnConfig.cookies
-    ? { mode: vpnConfig.mode, cookies: vpnConfig.cookies }
-    : undefined;
+  // auto 和 vpn 模式都需要初始化 WebVPN 服务
+  const webVpnOptions: WebVpnOptions | undefined = vpnConfig.mode === "direct"
+    ? { mode: "direct" }
+    : {
+        mode: vpnConfig.mode,
+        cookies: vpnConfig.cookies,
+      };
   
   const cc98Client = new Cc98Client({ tokenStore, webVpn: webVpnOptions });
   
   // 初始化 WebVPN（如果需要）
-  if (webVpnOptions) {
-    await cc98Client.initWebVpn();
-  }
+  await cc98Client.initWebVpn();
   
   const client = new CachedCc98Client(cc98Client);
   const state = createInitialState();
