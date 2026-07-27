@@ -689,11 +689,6 @@ export class TuiController {
       void this.startTopicReply();
       return;
     }
-    // Q：引用回复
-    if (this.keybindings.matches(key, "topicQuoteReply")) {
-      void this.startQuoteReply();
-      return;
-    }
     // j：下移
     if (this.keybindings.matches(key, "topicScrollDown")) {
       const maxScroll = Math.max(0, (this.state.topic?.lines.length ?? 0) - 1);

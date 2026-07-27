@@ -58,7 +58,7 @@ export class StatusBar implements Component {
       return "f 关注  m 私信  u 关闭";
     }
     if (state.mode === "topic") {
-      return `${this.keys("topicScrollDown")}/${this.keys("topicScrollUp")} 滚动  ${this.keys("reply")} 回复  ${this.keys("topicQuoteReply")} 引用  ${this.keys("menu")} 菜单  ${this.keys("topicNextPage")}/${this.keys("topicPrevPage")} 翻页  ${this.keys("back")} 返回`;
+      return `${this.keys("topicScrollDown")}/${this.keys("topicScrollUp")} 滚动  ${this.keys("reply")} 回复  ${this.keys("menu")} 菜单  ${this.keys("topicNextPage")}/${this.keys("topicPrevPage")} 翻页  ${this.keys("back")} 返回`;
     }
     if (state.mode === "settings") {
       return `${this.keys("moveDown")}/${this.keys("moveUp")} 选择  ${this.keys("confirm")} 执行  ${this.keys("back")} 返回`;

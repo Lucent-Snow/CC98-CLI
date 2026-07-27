@@ -39,7 +39,6 @@ export type KeybindingAction =
   | "topicOpenImage"
   | "topicCopyLink"
   | "topicRefresh"
-  | "topicQuoteReply"
   // 列表
   | "listNext"
   | "listPrev"
@@ -102,7 +101,6 @@ export const DEFAULT_KEYBINDINGS: KeybindingConfig = {
   topicOpenImage: [],
   topicCopyLink: [],
   topicRefresh: ["r"],
-  topicQuoteReply: ["Q"],
   // 列表
   listNext: ["j", "\x1b[B"],
   listPrev: ["k", "\x1b[A"],
@@ -232,7 +230,6 @@ export class KeybindingManager {
       topicOpenImage: "打开图片",
       topicCopyLink: "复制图片/链接",
       topicRefresh: "刷新帖子",
-      topicQuoteReply: "引用回复",
       listNext: "列表下移",
       listPrev: "列表上移",
       listOpen: "打开",
