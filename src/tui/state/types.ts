@@ -152,6 +152,7 @@ export interface TopicPostEntry {
   dislikeCount: number;
   rating?: string;
   preview: string;
+  content: string;  // 原始 UBB 内容，用于引用回复
   lineStart: number;
   lineEnd: number;
   imageCount: number;

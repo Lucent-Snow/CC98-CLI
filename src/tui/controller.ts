@@ -577,6 +577,9 @@ export class TuiController {
         if (line?.kind === "link" && line.linkUrl) void this.copyToClipboard(line.linkUrl);
         break;
       }
+      case "topic-quote-reply":
+        void this.startQuoteReply();
+        break;
       case "topic-copy-link":
         this.copyCurrentTopicLink();
         break;
@@ -684,6 +687,11 @@ export class TuiController {
     // R：回复
     if (this.keybindings.matches(key, "reply")) {
       void this.startTopicReply();
+      return;
+    }
+    // Q：引用回复
+    if (this.keybindings.matches(key, "topicQuoteReply")) {
+      void this.startQuoteReply();
       return;
     }
     // j：下移
@@ -1208,6 +1216,7 @@ export class TuiController {
       ];
     }
     return [
+      { label: "引用回复", key: "Enter", action: "topic-quote-reply" },
       { label: "收藏或取消收藏", key: "Enter", action: "topic-favorite" },
       { label: "复制帖子链接", key: "Enter", action: "topic-copy-link" },
       { label: "返回上级", key: "Enter", action: "topic-menu-root" }
@@ -2302,6 +2311,38 @@ export class TuiController {
       persistDraft: true
     };
     this.state.status = "写作中";
+    this.render();
+  }
+
+  private async startQuoteReply(): Promise<void> {
+    const topic = this.state.topic;
+    if (!topic) return;
+    const post = currentTopicPost(topic, topic.cursorLine);
+    if (!post || !post.content) {
+      this.state.status = "无法获取楼层内容";
+      this.render();
+      return;
+    }
+
+    // 构建引用内容
+    const quoteContent = `[quote=${post.author}]${post.content}[/quote]\n`;
+    const existing = this.state.compose;
+    const existingDraft = existing?.kind === "topic-reply" && existing.targetId === topic.topicId
+      ? existing.value
+      : await this.settingsStore.getTopicReplyDraft(topic.topicId);
+
+    // 如果已有草稿，在前面加上引用
+    const value = existingDraft ? `${quoteContent}${existingDraft}` : quoteContent;
+
+    this.state.compose = {
+      kind: "topic-reply",
+      targetId: topic.topicId,
+      title: topic.title,
+      value,
+      active: true,
+      persistDraft: true
+    };
+    this.state.status = "引用回复";
     this.render();
   }
 

@@ -204,6 +204,7 @@ function renderPosts(posts: unknown[], lineOffset: number, floorOffset: number):
       dislikeCount: asNumber(obj.dislikeCount) ?? 0,
       rating: formatRating(obj),
       preview: normalizeInline(stripAnsi(rendered.lines.join(" "))).slice(0, 80),
+      content,  // 保存原始 UBB 内容
       lineStart: start,
       lineEnd: lineOffset + lines.length - 1,
       imageCount: rendered.images.length,
