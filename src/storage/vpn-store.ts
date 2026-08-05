@@ -11,9 +11,9 @@ export interface VpnCredentials {
 export interface VpnConfig {
   mode: "auto" | "vpn" | "direct";
   username?: string;
+  password?: string;
   cookies?: Record<string, string>;
   loggedInAt?: string;
-  // 密码不持久化，登录后仅保存 WebVPN 会话 Cookie
 }
 
 const VPN_CONFIG_FILE = "vpn.json";
@@ -56,24 +56,25 @@ export class VpnStore {
     await chmod(this.filePath, 0o600);
   }
 
-  /**
-   * 保存 VPN 用户名（密码不保存）
-   */
-  async saveUsername(username: string): Promise<void> {
-    const config = await this.getConfig();
-    config.username = username;
-    await this.saveConfig(config);
-  }
-
-  /**
-   * 保存 WebVPN 会话 Cookie
-   */
-  async saveSession(username: string, cookies: Record<string, string>): Promise<void> {
+  /** Save WebVPN credentials without exposing them in command output. */
+  async saveCredentials(username: string, password: string): Promise<void> {
     const config = await this.getConfig();
     await this.saveConfig({
       ...config,
       mode: config.mode ?? "auto",
       username,
+      password,
+    });
+  }
+
+  /** Save WebVPN credentials and the current session cookies. */
+  async saveSession(username: string, password: string, cookies: Record<string, string>): Promise<void> {
+    const config = await this.getConfig();
+    await this.saveConfig({
+      ...config,
+      mode: config.mode ?? "auto",
+      username,
+      password,
       cookies,
       loggedInAt: new Date().toISOString(),
     });
@@ -109,11 +110,13 @@ function isVpnConfig(value: unknown): value is VpnConfig {
   }
 
   const config = value as VpnConfig;
-  return config.cookies === undefined || (
-    typeof config.cookies === "object" &&
-    config.cookies !== null &&
-    Object.values(config.cookies).every((cookie) => typeof cookie === "string")
-  );
+  return (config.username === undefined || typeof config.username === "string") &&
+    (config.password === undefined || typeof config.password === "string") &&
+    (config.cookies === undefined || (
+      typeof config.cookies === "object" &&
+      config.cookies !== null &&
+      Object.values(config.cookies).every((cookie) => typeof cookie === "string")
+    ));
 }
 
 function isFileNotFound(error: unknown): boolean {

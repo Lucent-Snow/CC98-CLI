@@ -15,6 +15,10 @@ export class CachedCc98Client {
     this.cache = cache ?? new CacheStore();
   }
 
+  getWebVpnStatus(): ReturnType<Cc98Client["getWebVpnStatus"]> {
+    return this.client.getWebVpnStatus();
+  }
+
   getForumIndex(force = false, signal?: AbortSignal): Promise<unknown> {
     return this.cache.getOrSet("forum:index", 30 * second, () => this.client.getForumIndex({ signal }), { force });
   }

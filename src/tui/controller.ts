@@ -134,10 +134,12 @@ export class TuiController {
       if (next.overview) {
         this.state.overview = next.overview;
       }
-      this.state.status = next.status ?? "";
+      const webVpnNotice = this.client.getWebVpnStatus()?.notice;
+      this.state.status = webVpnNotice ?? next.status ?? "";
     } catch (error) {
       if (isAbortError(error) || version !== this.loadVersion) return;
-      this.state.error = error instanceof Error ? error.message : String(error);
+      const webVpnNotice = this.client.getWebVpnStatus()?.notice;
+      this.state.error = webVpnNotice ?? (error instanceof Error ? error.message : String(error));
       this.state.items = [];
       this.state.stats = [];
     } finally {

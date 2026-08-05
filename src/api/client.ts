@@ -1,6 +1,6 @@
 import { endpoints } from "./endpoints.js";
 import type { AuthToken, ClientOptions, JsonObject, WebVpnOptions } from "./types.js";
-import { WebVpnService } from "./webvpn.js";
+import { WebVpnAuthError, WebVpnService } from "./webvpn.js";
 
 const passwordClientId = "9a1fd200-8687-44b1-4c20-08d50a96e5cd";
 const passwordClientSecret = "8b53f727-08e2-4509-8857-e34bf92b27f2";
@@ -19,6 +19,8 @@ export class Cc98Client {
   private readonly webVpn?: WebVpnService;
   private readonly webVpnOptions?: WebVpnOptions;
   private refreshPromise: Promise<TokenRefreshResult | null> | null = null;
+  private webVpnRefreshPromise: Promise<boolean> | null = null;
+  private webVpnNotice?: string;
 
   constructor(options: ClientOptions) {
     this.tokenStore = options.tokenStore;
@@ -47,17 +49,19 @@ export class Cc98Client {
     if (mode === "vpn") {
       // 强制 VPN 模式
       this.webVpn.enabled = true;
-      if (this.webVpnOptions.credentials) {
+      if (!this.webVpn.isLoggedIn && this.webVpnOptions.credentials) {
         const result = await this.webVpn.login(
           this.webVpnOptions.credentials.username,
           this.webVpnOptions.credentials.password
         );
         if (!result.success) {
-          console.error("WebVPN login failed:", result.message);
+          this.setWebVpnNotice(result.message ?? "WebVPN 登录失败，请重新登录");
+        } else {
+          await this.persistWebVpnSession();
         }
       }
       if (!this.webVpn.isLoggedIn) {
-        console.error("WebVPN is enabled but not logged in. Run \"cc98 vpn login\" first.");
+        this.setWebVpnNotice("WebVPN 未登录，请运行 \"cc98 vpn login\" 保存账号密码以便自动续期");
       }
       return;
     }
@@ -67,18 +71,20 @@ export class Cc98Client {
     if (!inCampus) {
       // 不在校园网，尝试使用 WebVPN
       this.webVpn.enabled = true;
-      if (this.webVpnOptions.credentials) {
+      if (!this.webVpn.isLoggedIn && this.webVpnOptions.credentials) {
         const result = await this.webVpn.login(
           this.webVpnOptions.credentials.username,
           this.webVpnOptions.credentials.password
         );
         if (!result.success) {
-          console.error("WebVPN login failed:", result.message);
+          this.setWebVpnNotice(result.message ?? "WebVPN 登录失败，请重新登录");
+        } else {
+          await this.persistWebVpnSession();
         }
       }
       if (!this.webVpn.isLoggedIn) {
         this.webVpn.enabled = false;
-        console.error("WebVPN is needed but not logged in. Run \"cc98 vpn login\" first.");
+        this.setWebVpnNotice("WebVPN 未登录，请运行 \"cc98 vpn login\" 保存账号密码以便自动续期");
       }
     }
   }
@@ -86,8 +92,9 @@ export class Cc98Client {
   /**
    * 获取 WebVPN 状态
    */
-  getWebVpnStatus(): { enabled: boolean; loggedIn: boolean } | undefined {
-    return this.webVpn?.getStatus();
+  getWebVpnStatus(): { enabled: boolean; loggedIn: boolean; authState: "unknown" | "authenticated" | "expired"; notice?: string } | undefined {
+    const status = this.webVpn?.getStatus();
+    return status ? { ...status, notice: this.webVpnNotice ?? this.webVpn?.lastError } : undefined;
   }
 
   async loginWithPassword(username: string, password: string): Promise<{ accessToken: string; refreshToken?: string }> {
@@ -366,6 +373,71 @@ export class Cc98Client {
     });
   }
 
+  private async fetchThroughWebVpn(url: string, init: RequestInit): Promise<Response> {
+    if (!this.webVpn?.isEnabled) {
+      return fetch(url, {
+        ...init,
+        headers: new Headers(init.headers)
+      });
+    }
+
+    try {
+      return await this.webVpn.fetch(url, init);
+    } catch (error) {
+      if (!(error instanceof WebVpnAuthError)) {
+        throw error;
+      }
+
+      const renewed = await this.tryRefreshWebVpn();
+      if (!renewed) {
+        throw new WebVpnAuthError(this.webVpnNotice ?? error.message);
+      }
+      return this.webVpn.fetch(url, init);
+    }
+  }
+
+  private async tryRefreshWebVpn(): Promise<boolean> {
+    if (this.webVpnRefreshPromise) {
+      return this.webVpnRefreshPromise;
+    }
+
+    this.webVpnRefreshPromise = this.doRefreshWebVpn();
+    try {
+      return await this.webVpnRefreshPromise;
+    } finally {
+      this.webVpnRefreshPromise = null;
+    }
+  }
+
+  private async doRefreshWebVpn(): Promise<boolean> {
+    const credentials = this.webVpnOptions?.credentials;
+    if (!this.webVpn || !credentials) {
+      this.setWebVpnNotice("WebVPN 会话已过期，请运行 \"cc98 vpn login\" 重新保存账号密码");
+      return false;
+    }
+
+    const result = await this.webVpn.login(credentials.username, credentials.password);
+    if (!result.success) {
+      this.setWebVpnNotice(`WebVPN 会话已过期，自动续期失败：${result.message ?? "请运行 cc98 vpn login 重新登录"}`);
+      return false;
+    }
+
+    await this.persistWebVpnSession();
+    this.setWebVpnNotice(undefined);
+    return true;
+  }
+
+  private async persistWebVpnSession(): Promise<void> {
+    const callback = this.webVpnOptions?.onSessionUpdated;
+    if (callback && this.webVpn) {
+      await callback(this.webVpn.getCookies());
+    }
+  }
+
+  private setWebVpnNotice(notice: string | undefined): void {
+    this.webVpnNotice = notice;
+  }
+
   private async request<T>(url: string, init: RequestInit = {}, authorize = true): Promise<T> {
     const headers = new Headers(init.headers);
 
@@ -378,35 +450,21 @@ export class Cc98Client {
     }
 
     // 使用 WebVPN 或直接请求
-    let response: Response;
-    if (this.webVpn?.isEnabled) {
-      response = await this.webVpn.fetch(url, {
-        ...init,
-        headers: Object.fromEntries(headers.entries())
-      });
-    } else {
-      response = await fetch(url, {
-        ...init,
-        headers
-      });
-    }
+    const requestInit = {
+      ...init,
+      headers: Object.fromEntries(headers.entries())
+    };
+    let response = await this.fetchThroughWebVpn(url, requestInit);
 
     // Try to refresh token on 401
     if (response.status === 401 && authorize) {
       const refreshed = await this.tryRefreshToken();
       if (refreshed) {
         headers.set("authorization", `Bearer ${refreshed.accessToken}`);
-        if (this.webVpn?.isEnabled) {
-          response = await this.webVpn.fetch(url, {
-            ...init,
-            headers: Object.fromEntries(headers.entries())
-          });
-        } else {
-          response = await fetch(url, {
-            ...init,
-            headers
-          });
-        }
+        response = await this.fetchThroughWebVpn(url, {
+          ...init,
+          headers: Object.fromEntries(headers.entries())
+        });
       }
     }
 

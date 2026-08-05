@@ -67,7 +67,7 @@ async function vpnLogin(args: string[]): Promise<void> {
       const confirmResult = await vpn.confirmLogin();
       if (confirmResult.success) {
         console.log("✅ WebVPN 登录成功");
-        await store.saveSession(username, vpn.getCookies());
+        await store.saveSession(username, password, vpn.getCookies());
       } else {
         console.error("确认登录失败:", confirmResult.message);
         return;
@@ -78,7 +78,7 @@ async function vpnLogin(args: string[]): Promise<void> {
     }
   } else if (result.success) {
     console.log("✅ WebVPN 登录成功");
-    await store.saveSession(username, vpn.getCookies());
+    await store.saveSession(username, password, vpn.getCookies());
   } else {
     console.error("WebVPN 登录失败:", result.message);
     return;
@@ -90,6 +90,7 @@ async function vpnLogin(args: string[]): Promise<void> {
   const testResponse = await vpn.fetch("https://api.cc98.org/config/index");
   if (testResponse.ok) {
     console.log("✅ WebVPN 连接正常");
+    console.log("✅ 已保存 WebVPN 凭据，后续可自动续期");
   } else {
     console.error("WebVPN 连接失败:", testResponse.status);
   }
@@ -119,6 +120,7 @@ async function vpnStatus(): Promise<void> {
   console.log(`  模式: ${config.mode}`);
   console.log(`  用户名: ${config.username || "未配置"}`);
   console.log(`  会话: ${config.cookies ? "已保存" : "未登录"}`);
+  console.log(`  自动续期: ${config.username && config.password ? "已启用" : "未启用（运行 cc98 vpn login）"}`);
   if (config.loggedInAt) {
     console.log(`  登录时间: ${config.loggedInAt}`);
   }
@@ -161,8 +163,13 @@ async function vpnTest(): Promise<void> {
   if (config.username && config.cookies) {
     console.log(`   使用账号: ${config.username}`);
     vpn.loadCookies(config.cookies);
-    const response = await vpn.fetch("https://api.cc98.org/config/index");
-    console.log(`   API 访问: ${response.ok ? "成功" : `失败 ${response.status}`}`);
+    try {
+      const response = await vpn.fetch("https://api.cc98.org/config/index");
+      console.log(`   API 访问: ${response.ok ? "成功" : `失败 ${response.status}`}`);
+    } catch (error) {
+      console.error(`   API 访问失败: ${error instanceof Error ? error.message : String(error)}`);
+      console.log("   请运行 'cc98 vpn login' 重新获取 WebVPN 会话");
+    }
   } else if (config.username) {
     console.log(`   已配置账号: ${config.username}`);
     console.log("   未保存有效会话，请运行 'cc98 vpn login' 重新登录");

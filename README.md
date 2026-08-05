@@ -136,7 +136,9 @@ cc98 vpn --help
 ~/.cc98-cli/
 ```
 
-Token、WebVPN Cookie 和缓存文件都保存在本机。WebVPN 不保存密码。
+Token、WebVPN 账号密码、Cookie 和缓存文件都保存在本机。WebVPN 配置文件权限为 `0600`，仅当前用户可读写。
+
+执行 `cc98 vpn login` 后，账号密码和会话 Cookie 会保存到本地。WebVPN 会话过期时，客户端会自动使用已保存的账号密码重新登录并更新 Cookie；无需重复输入。
 
 ## 从源码运行
 

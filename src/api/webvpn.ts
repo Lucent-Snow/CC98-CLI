@@ -16,9 +16,19 @@ export interface WebVpnLoginResult {
   captchaId?: string;
 }
 
+export type WebVpnAuthState = "unknown" | "authenticated" | "expired";
+
+export class WebVpnAuthError extends Error {
+  constructor(message = "WebVPN session expired. Run \"cc98 vpn login\" to save credentials and renew the session.") {
+    super(message);
+    this.name = "WebVpnAuthError";
+  }
+}
+
 export interface WebVpnStatus {
   enabled: boolean;
   loggedIn: boolean;
+  authState: WebVpnAuthState;
   inCampusNetwork?: boolean;
 }
 
@@ -26,6 +36,8 @@ export class WebVpnService {
   private cookies: Map<string, string> = new Map();
   private _loggedIn = false;
   private _enabled = false;
+  private _authState: WebVpnAuthState = "unknown";
+  private _lastError?: string;
 
   constructor(cookies?: Record<string, string>) {
     if (cookies) {
@@ -53,6 +65,8 @@ export class WebVpnService {
       }
     }
     this._loggedIn = this.cookies.size > 0;
+    this._authState = this._loggedIn ? "unknown" : "expired";
+    this._lastError = undefined;
   }
 
   getCookies(): Record<string, string> {
@@ -112,7 +126,7 @@ export class WebVpnService {
       const result = await loginResponse.json() as Record<string, unknown>;
 
       if (result.success) {
-        this._loggedIn = true;
+        this.markAuthenticated();
         return { success: true };
       }
 
@@ -139,7 +153,7 @@ export class WebVpnService {
       const result = await response.json() as Record<string, unknown>;
 
       if (result.success) {
-        this._loggedIn = true;
+        this.markAuthenticated();
         return { success: true };
       }
 
@@ -156,6 +170,8 @@ export class WebVpnService {
     try {
       await this.get(`${WEBVPN_BASE}/logout`);
       this._loggedIn = false;
+      this._authState = "expired";
+      this._lastError = undefined;
       this.cookies.clear();
     } catch {
       // 忽略错误
@@ -225,8 +241,15 @@ export class WebVpnService {
       if (location) {
         this.updateCookies(response);
         const nextUrl = new URL(location, response.url || targetUrl).toString();
+        if (this.isLoginRedirect(nextUrl, url)) {
+          throw this.markExpired();
+        }
         return this.fetchWithRedirects(nextUrl, redirectOptions(options, response.status), redirectCount + 1);
       }
+    }
+
+    if (this.isLoginPage(response, url)) {
+      throw this.markExpired();
     }
 
     this.updateCookies(response);
@@ -240,10 +263,48 @@ export class WebVpnService {
     return {
       enabled: this._enabled,
       loggedIn: this._loggedIn,
+      authState: this._authState,
     };
   }
 
+  get lastError(): string | undefined {
+    return this._lastError;
+  }
+
   // ========== 私有方法 ==========
+
+  private markAuthenticated(): void {
+    this._loggedIn = true;
+    this._authState = "authenticated";
+    this._lastError = undefined;
+  }
+
+  private markExpired(): WebVpnAuthError {
+    this._loggedIn = false;
+    this._authState = "expired";
+    this._lastError = "WebVPN 会话已过期，请重新登录";
+    this.cookies.clear();
+    return new WebVpnAuthError(this._lastError);
+  }
+
+  private isLoginRedirect(nextUrl: string, originalUrl: string): boolean {
+    if (!this._enabled || this.isLoginUrl(originalUrl)) return false;
+    return this.isLoginUrl(nextUrl);
+  }
+
+  private isLoginPage(response: Response, originalUrl: string): boolean {
+    if (!this._enabled || this.isLoginUrl(originalUrl)) return false;
+    return this.isLoginUrl(response.url);
+  }
+
+  private isLoginUrl(url: string): boolean {
+    try {
+      const parsed = new URL(url);
+      return parsed.origin === WEBVPN_BASE && parsed.pathname === "/login";
+    } catch {
+      return false;
+    }
+  }
 
   private getHeaders(): Record<string, string> {
     const headers: Record<string, string> = {

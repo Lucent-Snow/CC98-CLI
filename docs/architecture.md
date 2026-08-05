@@ -72,7 +72,13 @@ CC98-CLI 采用分层架构，各层职责清晰，依赖方向严格控制。
 - 并发去重：多个请求同时 401 只触发一次刷新
 - 刷新失败则提示重新登录
 
-### 4. TUI 状态机与控制器
+### 4. WebVPN 会话续期
+- WebVPN 登录跳转表示 Cookie 会话已过期
+- 使用 `vpn.json` 中保存的账号密码自动重新登录，并通过回调更新本地 Cookie
+- 自动登录并发去重，单次请求最多在重新登录后重试一次
+- `vpn.json` 使用 `0600` 权限；未配置凭据时提示运行 `cc98 vpn login`
+
+### 5. TUI 状态机与控制器
 - 状态集中在 `TuiState`，由 `state/store.ts` 创建初始状态
 - 视图模式: `list`, `topic`, `settings`, `user-detail`
 - 焦点管理: nav ↔ content
@@ -81,7 +87,7 @@ CC98-CLI 采用分层架构，各层职责清晰，依赖方向严格控制。
 - `TuiController` 持有 `client`, `tokenStore`, `render`, `AbortController` 等运行时上下文，负责所有会产生副作用的动作
 - 渲染组件不直接发请求；数据加载和写操作不散落在组件里
 
-### 5. UBB 渲染
+### 6. UBB 渲染
 - CC98 使用 UBB 代码（非 HTML）
 - 自定义解析器: `ubb-renderer.ts`
 - 支持: 图片、链接、引用、加粗、斜体等

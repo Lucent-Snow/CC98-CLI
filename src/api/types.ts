@@ -15,6 +15,8 @@ export interface WebVpnOptions {
     username: string;
     password: string;
   };
+  /** Persist cookies after an initial or automatic re-login. */
+  onSessionUpdated?: (cookies: Record<string, string>) => Promise<void> | void;
 }
 
 export interface ClientOptions {
