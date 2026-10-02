@@ -83,7 +83,7 @@ export class WebVpnService {
           "User-Agent": this.userAgent,
         },
       });
-      const text = await response.text();
+      const text = (await response.text()).trim();
       return text === "1" || text === "2";
     } catch {
       return false;

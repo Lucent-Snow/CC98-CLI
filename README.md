@@ -44,6 +44,16 @@ cc98 vpn status
 cc98 vpn mode auto
 ```
 
+### 经本地代理使用（Clash / V2Ray 等）
+
+Node 的原生 `fetch` 默认**不读取** `HTTP_PROXY` / `HTTPS_PROXY` 环境变量，因此即便终端里代理变量已生效，cc98 仍会直连访问，可能导致校园网检测失败或 API 不可达。Node ≥ 24 可通过以下方式让 `fetch` 跟随代理环境变量：
+
+```bash
+export NODE_USE_ENV_PROXY=1   # 可写入 ~/.zshrc 持久化
+```
+
+若你的代理规则能把 `api.cc98.org`、`mirrors.zju.edu.cn` 送入校园网出口（例如通过 RVPN / WebVPN 网关分流），则无需再配置本工具的 WebVPN 模式。
+
 ## TUI
 
 ```bash
